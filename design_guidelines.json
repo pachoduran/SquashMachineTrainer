@@ -1,0 +1,96 @@
+{
+  "theme": "dark",
+  "archetype": "2 (Performance Pro)",
+  "domain": "Fitness & Hardware Controller",
+  "global_rules": {
+    "spacing": "Dense tactical layouts. Use p-4 to p-6 for mobile containers. Large touch targets (min-h-[48px]) for buttons.",
+    "borders": "Tactical Minimalism. 1px solid borders (border-white/10) instead of soft shadows.",
+    "motion": "Subtle, fast micro-interactions. Active states should have an immediate, crisp 'snap' to mimic hardware buttons.",
+    "accessibility": "High contrast text (text-white for primary, text-zinc-400 for secondary). All interactive elements must have data-testid attributes."
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Outfit",
+      "body": "Manrope",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight uppercase",
+      "h2": "text-2xl font-semibold tracking-tight uppercase",
+      "h3": "text-xl font-medium",
+      "body": "text-base font-normal tracking-wide",
+      "label": "text-xs font-bold tracking-[0.15em] uppercase text-zinc-500",
+      "metric": "text-5xl font-black tracking-tighter tabular-nums"
+    },
+    "instructions_to_main_agent": "Ensure numerical displays (like Speed or Time Interval) use tabular-nums and the boldest weight for a 'digital stopwatch' feel."
+  },
+  "colors": {
+    "background": {
+      "base": "#050505",
+      "surface": "#121212",
+      "surface_elevated": "#1A1A1A"
+    },
+    "border": {
+      "default": "rgba(255, 255, 255, 0.1)",
+      "focus": "rgba(59, 130, 246, 0.5)"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A1A1AA",
+      "disabled": "#52525B"
+    },
+    "brand": {
+      "primary": "#3B82F6",
+      "primary_hover": "#60A5FA",
+      "danger": "#EF4444",
+      "success": "#10B981"
+    }
+  },
+  "components": {
+    "header": {
+      "style": "Sticky top bar, z-50, backdrop-blur-xl bg-black/80, border-b border-white/10. Contains the bilingual toggle and the always-visible BLE Connection Status indicators.",
+      "connection_status": "Small circular icons or pill badges. Green dot = Connected, Red/Zinc dot = Disconnected. Show Machine + up to 3 Pods."
+    },
+    "cards": {
+      "style": "Flat backgrounds (bg-[#121212]), rounded-xl, border border-white/10. Inner padding p-5. NO box-shadow.",
+      "hover_state": "Slight border highlight (border-white/20) - no lifting."
+    },
+    "buttons": {
+      "primary": "bg-blue-600 hover:bg-blue-500 text-white font-bold uppercase tracking-wider rounded-lg h-14 w-full flex items-center justify-center transition-colors active:scale-[0.98]",
+      "danger": "bg-red-600 hover:bg-red-500 text-white font-bold uppercase tracking-wider rounded-lg h-14 w-full flex items-center justify-center transition-colors active:scale-[0.98]",
+      "outline": "bg-transparent border border-white/20 hover:border-white/40 text-white rounded-lg h-14 flex items-center justify-center transition-colors"
+    },
+    "inputs_and_controls": {
+      "slider": "Thick track (h-3), highly visible thumb. Use blue for speed, white/gray for time interval.",
+      "toggle": "Large touch area. Blue active state for standard features (Vibrator, Pods), Red active state for Heater.",
+      "mode_selector": "Segmented control style. bg-[#1A1A1A] p-1 rounded-lg border border-white/10."
+    }
+  },
+  "layout": {
+    "structure": "Mobile-first width constraint (max-w-md mx-auto h-screen flex flex-col relative bg-[#050505] overflow-hidden shadow-2xl).",
+    "navigation": "Bottom tab bar or clear segmented views for Device Registration vs Main Controls vs Settings."
+  },
+  "visual_enhancers": {
+    "background_texture": "Implement a pure CSS subtle grain/noise or a radial gradient (bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-900/10 via-black to-black) to avoid flat black.",
+    "icons": "Use @phosphor-icons/react (Duotone or Bold weights) for hardware buttons. Technical, crisp aesthetic.",
+    "animations": "Use Framer Motion. Add a radar/pulse ping animation for the 'Scanning for BLE devices' state."
+  },
+  "media": {
+    "logos": {
+      "main": {
+        "url": "https://customer-assets.emergentagent.com/job_fcdf8872-f8b9-4cab-bdec-2d72294d92c0/artifacts/rkw0p2pu_SMTLITELOGO.png",
+        "alt": "Squash Machine Trainer Lite Logo",
+        "usage": "Use in the Splash screen, Header, or Device Registration screen. Since it has a black background, it will blend perfectly with the #050505 base background."
+      }
+    }
+  },
+  "features_spec": {
+    "ble_scanner": "List layout for discovered devices (JDY-23/08/32). Each row should have a 'Connect/Register' button. Assign roles (Machine, Pod 1, 2, 3) via a simple dropdown or cyclic tap.",
+    "training_controls": {
+      "time_interval": "Display range 0.1s to 10.0s. Use a large slider or prominent +/- steppers.",
+      "speed": "Display range 0-10. Use a vertical slider or a prominent rotary-style UI, but standard thick sliders are safest.",
+      "action_buttons": "Cluster the 'Speed' (motors start), 'Launch', and 'Init' (start training) buttons prominently. 'Init' should be the largest primary CTA."
+    },
+    "bilingual": "Include an EN/ES toggle in the Header or Settings. Keep text strings short to accommodate translation expansion."
+  }
+}
