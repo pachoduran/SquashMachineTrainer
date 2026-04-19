@@ -1,0 +1,15 @@
+export const COLORS = {
+  bg: '#050505',
+  surface: '#121212',
+  surfaceElevated: '#1A1A1A',
+  border: 'rgba(255, 255, 255, 0.1)',
+  borderFocus: 'rgba(59, 130, 246, 0.5)',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#A1A1AA',
+  textDisabled: '#52525B',
+  primary: '#3B82F6',
+  primaryLight: '#60A5FA',
+  danger: '#EF4444',
+  success: '#10B981',
+  warning: '#F59E0B',
+};
