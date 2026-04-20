@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -27,45 +26,38 @@ function PodsModeSelectorSection() {
           ];
 
   return (
-    <View style={styles.section}>
-      <Text style={styles.sectionLabel}>{t('podsMode')}</Text>
-      <View style={styles.segmented}>
+    <View style={styles.sectionRow}>
+      <Text style={styles.sectionLabelInline}>{t('podsMode')}</Text>
+      <View style={styles.segmentedSmall}>
         {options.map((opt) => {
           const active = podsMode === opt.key;
           return (
             <TouchableOpacity
               key={opt.key}
               testID={`pods-mode-${opt.key}`}
-              style={[styles.segBtn, active && styles.segBtnActive]}
+              style={[styles.segBtnSmall, active && styles.segBtnSmallActive]}
               onPress={() => setPodsMode(opt.key)}
               disabled={podCount === 0}
             >
-              <Text style={[styles.segText, active && styles.segTextActive]}>
+              <Text style={[styles.segTextSmall, active && styles.segTextSmallActive]}>
                 {opt.label}
               </Text>
             </TouchableOpacity>
           );
         })}
       </View>
-      {podCount === 0 && (
-        <Text style={styles.hint}>
-          {t('disabled')} — 0 pods
-        </Text>
-      )}
     </View>
   );
 }
 
 function ValueStepper({
   label,
-  value,
   onDecrement,
   onIncrement,
   displayValue,
   testIdPrefix,
 }: {
   label: string;
-  value: number;
   onDecrement: () => void;
   onIncrement: () => void;
   displayValue: string;
@@ -80,7 +72,7 @@ function ValueStepper({
           style={styles.stepBtn}
           onPress={onDecrement}
         >
-          <Ionicons name="remove" size={28} color={COLORS.textPrimary} />
+          <Ionicons name="remove" size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <View style={styles.valueBox}>
           <Text style={styles.valueText}>{displayValue}</Text>
@@ -90,7 +82,7 @@ function ValueStepper({
           style={styles.stepBtn}
           onPress={onIncrement}
         >
-          <Ionicons name="add" size={28} color={COLORS.textPrimary} />
+          <Ionicons name="add" size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
       </View>
     </View>
@@ -108,6 +100,8 @@ export default function ControlsScreen() {
     sendSpeedCommand,
     sendLaunchCommand,
     sendInitCommand,
+    launchCount,
+    isTraining,
   } = useApp();
 
   const adjustTime = (delta: number) => {
@@ -139,18 +133,31 @@ export default function ControlsScreen() {
         {/* Warning if no machine */}
         {!hasMachine && (
           <View style={styles.warningCard} testID="no-machine-warning">
-            <Ionicons name="warning" size={20} color={COLORS.warning} />
+            <Ionicons name="warning" size={18} color={COLORS.warning} />
             <Text style={styles.warningText}>{t('noMachineWarning')}</Text>
           </View>
         )}
 
-        {/* Pods Mode */}
+        {/* Launch Counter */}
+        <View style={styles.counterCard} testID="launch-counter">
+          <Text style={styles.counterLabel}>{t('launchCounter')}</Text>
+          <Text style={[styles.counterValue, isTraining && styles.counterValueActive]}>
+            {launchCount}
+          </Text>
+          {isTraining && (
+            <View style={styles.trainingBadge}>
+              <View style={styles.trainingDot} />
+              <Text style={styles.trainingBadgeText}>LIVE</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Pods Mode - compact inline */}
         <PodsModeSelectorSection />
 
         {/* Time Interval */}
         <ValueStepper
           label={`${t('timeInterval')} (${t('seconds')})`}
-          value={timeInterval}
           displayValue={`${timeInterval.toFixed(1)}s`}
           onDecrement={() => adjustTime(-0.1)}
           onIncrement={() => adjustTime(0.1)}
@@ -160,7 +167,6 @@ export default function ControlsScreen() {
         {/* Speed */}
         <ValueStepper
           label={t('speed')}
-          value={speed}
           displayValue={`${speed}`}
           onDecrement={() => adjustSpeed(-1)}
           onIncrement={() => adjustSpeed(1)}
@@ -168,41 +174,38 @@ export default function ControlsScreen() {
         />
 
         {/* Action Buttons */}
-        <View style={styles.actionsSection}>
+        <View style={styles.actionsRow}>
           <TouchableOpacity
             testID="speed-btn"
-            style={[styles.actionBtn, styles.actionBtnOutline]}
+            style={[styles.actionBtnHalf, styles.actionBtnOutline]}
             onPress={sendSpeedCommand}
           >
-            <Ionicons name="speedometer-outline" size={22} color={COLORS.primary} />
-            <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>
+            <Ionicons name="speedometer-outline" size={18} color={COLORS.primary} />
+            <Text style={[styles.actionBtnTextSmall, { color: COLORS.primary }]}>
               {t('speedBtn')}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             testID="launch-btn"
-            style={[styles.actionBtn, styles.actionBtnPrimary]}
+            style={[styles.actionBtnHalf, styles.actionBtnPrimary]}
             onPress={sendLaunchCommand}
           >
-            <MaterialCommunityIcons name="rocket-launch-outline" size={22} color="#FFF" />
-            <Text style={styles.actionBtnText}>{t('launch')}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            testID="init-btn"
-            style={[styles.actionBtn, styles.actionBtnInit]}
-            onPress={sendInitCommand}
-          >
-            <Ionicons name="play-circle" size={26} color="#FFF" />
-            <Text style={[styles.actionBtnText, { fontSize: 18 }]}>
-              {t('init')}
-            </Text>
+            <MaterialCommunityIcons name="rocket-launch-outline" size={18} color="#FFF" />
+            <Text style={styles.actionBtnTextSmall}>{t('launch')}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Mock Note */}
-        <Text style={styles.mockNote}>{t('bleMockNote')}</Text>
+        <TouchableOpacity
+          testID="init-btn"
+          style={[styles.actionBtnFull, isTraining ? styles.actionBtnStop : styles.actionBtnInit]}
+          onPress={sendInitCommand}
+        >
+          <Ionicons name={isTraining ? 'stop-circle' : 'play-circle'} size={24} color="#FFF" />
+          <Text style={styles.actionBtnTextLarge}>
+            {isTraining ? 'STOP' : t('init')}
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -211,56 +214,122 @@ export default function ControlsScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 32 },
-  logoContainer: { alignItems: 'center', marginBottom: 8 },
-  logo: { width: 180, height: 80 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
+  logoContainer: { alignItems: 'center', marginBottom: 4 },
+  logo: { width: 160, height: 60 },
   warningCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(245, 158, 11, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(245, 158, 11, 0.3)',
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 8,
+    padding: 8,
     gap: 8,
-    marginBottom: 16,
-  },
-  warningText: { color: COLORS.warning, fontSize: 13, flex: 1 },
-  section: { marginBottom: 20 },
-  sectionLabel: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1.5,
     marginBottom: 10,
   },
-  segmented: {
+  warningText: { color: COLORS.warning, fontSize: 12, flex: 1 },
+
+  // Launch Counter
+  counterCard: {
     flexDirection: 'row',
-    backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: 3,
-  },
-  segBtn: {
-    flex: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: 8,
+    marginBottom: 12,
   },
-  segBtnActive: { backgroundColor: COLORS.primary },
-  segText: { color: COLORS.textDisabled, fontWeight: '600', fontSize: 14 },
-  segTextActive: { color: '#FFF' },
-  hint: { color: COLORS.textDisabled, fontSize: 11, marginTop: 6 },
+  counterLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    flex: 1,
+  },
+  counterValue: {
+    color: COLORS.textPrimary,
+    fontSize: 32,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -1,
+  },
+  counterValueActive: { color: COLORS.success },
+  trainingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginLeft: 10,
+    gap: 4,
+  },
+  trainingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.success,
+  },
+  trainingBadgeText: {
+    color: COLORS.success,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+
+  // Pods Mode - compact inline
+  sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 10,
+  },
+  sectionLabelInline: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  segmentedSmall: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: COLORS.surfaceElevated,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 2,
+  },
+  segBtnSmall: {
+    flex: 1,
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  segBtnSmallActive: { backgroundColor: COLORS.primary },
+  segTextSmall: { color: COLORS.textDisabled, fontWeight: '600', fontSize: 12 },
+  segTextSmallActive: { color: '#FFF' },
+
+  // Stepper
+  section: { marginBottom: 12 },
+  sectionLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginBottom: 6,
+  },
   stepperRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   stepBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 12,
+    width: 46,
+    height: 46,
+    borderRadius: 10,
     backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -269,8 +338,8 @@ const styles = StyleSheet.create({
   },
   valueBox: {
     flex: 1,
-    height: 52,
-    borderRadius: 12,
+    height: 46,
+    borderRadius: 10,
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -279,19 +348,27 @@ const styles = StyleSheet.create({
   },
   valueText: {
     color: COLORS.textPrimary,
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: '900',
     letterSpacing: -1,
     fontVariant: ['tabular-nums'],
   },
-  actionsSection: { gap: 12, marginTop: 8 },
-  actionBtn: {
+
+  // Action Buttons
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  actionBtnHalf: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 56,
-    borderRadius: 12,
-    gap: 10,
+    height: 48,
+    borderRadius: 10,
+    gap: 8,
   },
   actionBtnOutline: {
     backgroundColor: 'transparent',
@@ -299,20 +376,27 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
   },
   actionBtnPrimary: { backgroundColor: COLORS.primary },
-  actionBtnInit: {
-    backgroundColor: COLORS.success,
-    height: 64,
-  },
-  actionBtnText: {
+  actionBtnTextSmall: {
     color: '#FFF',
     fontWeight: '800',
-    fontSize: 16,
-    letterSpacing: 1,
+    fontSize: 14,
+    letterSpacing: 0.8,
   },
-  mockNote: {
-    color: COLORS.textDisabled,
-    fontSize: 10,
-    textAlign: 'center',
-    marginTop: 20,
+  actionBtnFull: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 56,
+    borderRadius: 12,
+    gap: 10,
+    marginBottom: 4,
+  },
+  actionBtnInit: { backgroundColor: COLORS.success },
+  actionBtnStop: { backgroundColor: COLORS.danger },
+  actionBtnTextLarge: {
+    color: '#FFF',
+    fontWeight: '900',
+    fontSize: 18,
+    letterSpacing: 1.2,
   },
 });

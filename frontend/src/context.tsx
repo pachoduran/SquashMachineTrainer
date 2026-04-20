@@ -50,6 +50,9 @@ interface AppContextType {
   sendInitCommand: () => void;
   podCount: number;
   hasMachine: boolean;
+  launchCount: number;
+  isTraining: boolean;
+  resetLaunchCount: () => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -74,11 +77,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isScanning, setIsScanning] = useState(false);
   const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredDevice[]>([]);
   const [podsMode, setPodsModeState] = useState('disabled');
-  const [timeInterval, setTimeInterval] = useState(2.0);
-  const [speed, setSpeed] = useState(5);
+  const [timeInterval, setTimeInterval] = useState(2.5);
+  const [speed, setSpeed] = useState(1);
   const [vibrator, setVibrator] = useState(false);
   const [podsEnabled, setPodsEnabled] = useState(false);
   const [heater, setHeater] = useState(false);
+  const [launchCount, setLaunchCount] = useState(0);
+  const [isTraining, setIsTraining] = useState(false);
+  const trainingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const t = useCallback(
@@ -212,8 +218,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function sendInitCommand() {
-    Alert.alert(t('commandSent'), t('trainingStarted'));
+    if (isTraining) {
+      // Stop training
+      if (trainingTimerRef.current) {
+        clearInterval(trainingTimerRef.current);
+        trainingTimerRef.current = null;
+      }
+      setIsTraining(false);
+      Alert.alert(t('commandSent'), t('trainingStopped'));
+    } else {
+      // Start training
+      setIsTraining(true);
+      setLaunchCount(0);
+      const intervalMs = timeInterval * 1000;
+      trainingTimerRef.current = setInterval(() => {
+        setLaunchCount((prev) => prev + 1);
+      }, intervalMs);
+      Alert.alert(t('commandSent'), t('trainingStarted'));
+    }
   }
+
+  // Cleanup training timer on unmount
+  useEffect(() => {
+    return () => {
+      if (trainingTimerRef.current) clearInterval(trainingTimerRef.current);
+    };
+  }, []);
 
   return (
     <AppContext.Provider
@@ -246,6 +276,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         sendInitCommand,
         podCount,
         hasMachine,
+        launchCount,
+        isTraining,
+        resetLaunchCount: () => setLaunchCount(0),
       }}
     >
       {children}

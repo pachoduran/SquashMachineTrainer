@@ -31,6 +31,10 @@ export const translations: Record<Language, Record<string, string>> = {
     speedStarted: 'Motors started at speed',
     ballLaunched: 'Ball launch triggered',
     trainingStarted: 'Training session initiated',
+    trainingStopped: 'Training stopped',
+
+    // Launch counter
+    launchCounter: 'LAUNCHES',
 
     // Devices
     scanDevices: 'SCAN FOR DEVICES',
@@ -95,8 +99,10 @@ export const translations: Record<Language, Record<string, string>> = {
     ballLaunched: 'Lanzamiento de bola activado',
     trainingStarted: 'Sesión de entrenamiento iniciada',
 
-    // Devices
-    scanDevices: 'BUSCAR DISPOSITIVOS',
+    trainingStopped: 'Entrenamiento detenido',
+
+    // Launch counter
+    launchCounter: 'LANZAMIENTOS',
     scanning: 'Buscando...',
     noDevicesFound: 'Sin dispositivos. Toca buscar para escanear.',
     registeredDevices: 'DISPOSITIVOS REGISTRADOS',
