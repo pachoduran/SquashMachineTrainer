@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import { translations, Language } from './i18n';
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -194,55 +194,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function toggleVibrator() {
-    const next = !vibrator;
-    setVibrator(next);
-    Alert.alert(t('commandSent'), next ? t('vibratorOn') : t('vibratorOff'));
+    setVibrator(!vibrator);
   }
 
   function togglePods() {
-    const next = !podsEnabled;
-    setPodsEnabled(next);
-    Alert.alert(t('commandSent'), next ? t('podsOn') : t('podsOff'));
+    setPodsEnabled(!podsEnabled);
   }
 
   function toggleHeater() {
-    const next = !heater;
-    setHeater(next);
-    Alert.alert(t('commandSent'), next ? t('heaterOn') : t('heaterOff'));
+    setHeater(!heater);
   }
 
   function sendSpeedCommand() {
-    if (isMotorRunning) {
-      setIsMotorRunning(false);
-      Alert.alert(t('commandSent'), t('motorsStopped'));
-    } else {
-      setIsMotorRunning(true);
-      Alert.alert(t('commandSent'), `${t('speedStarted')} ${speed}`);
-    }
+    setIsMotorRunning(!isMotorRunning);
   }
 
   function sendLaunchCommand() {
-    Alert.alert(t('commandSent'), t('ballLaunched'));
+    // BLE command will be sent here
   }
 
   function sendInitCommand() {
     if (isTraining) {
-      // Stop training
       if (trainingTimerRef.current) {
         clearInterval(trainingTimerRef.current);
         trainingTimerRef.current = null;
       }
       setIsTraining(false);
-      Alert.alert(t('commandSent'), t('trainingStopped'));
     } else {
-      // Start training
       setIsTraining(true);
       setLaunchCount(0);
       const intervalMs = timeInterval * 1000;
       trainingTimerRef.current = setInterval(() => {
         setLaunchCount((prev) => prev + 1);
       }, intervalMs);
-      Alert.alert(t('commandSent'), t('trainingStarted'));
     }
   }
 
