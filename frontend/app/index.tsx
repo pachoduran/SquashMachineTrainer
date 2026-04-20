@@ -216,8 +216,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 },
-  logoContainer: { alignItems: 'center', marginBottom: 4 },
-  logo: { width: 160, height: 60 },
+  logoContainer: { alignItems: 'center', marginBottom: 6 },
+  logo: { width: 220, height: 90 },
   warningCard: {
     flexDirection: 'row',
     alignItems: 'center',
