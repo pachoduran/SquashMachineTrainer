@@ -102,6 +102,7 @@ export default function ControlsScreen() {
     sendInitCommand,
     launchCount,
     isTraining,
+    isMotorRunning,
   } = useApp();
 
   const adjustTime = (delta: number) => {
@@ -177,12 +178,12 @@ export default function ControlsScreen() {
         <View style={styles.actionsRow}>
           <TouchableOpacity
             testID="speed-btn"
-            style={[styles.actionBtnHalf, styles.actionBtnOutline]}
+            style={[styles.actionBtnHalf, isMotorRunning ? styles.actionBtnDanger : styles.actionBtnOutline]}
             onPress={sendSpeedCommand}
           >
-            <Ionicons name="speedometer-outline" size={18} color={COLORS.primary} />
-            <Text style={[styles.actionBtnTextSmall, { color: COLORS.primary }]}>
-              {t('speedBtn')}
+            <Ionicons name={isMotorRunning ? 'stop-circle-outline' : 'speedometer-outline'} size={18} color={isMotorRunning ? '#FFF' : COLORS.primary} />
+            <Text style={[styles.actionBtnTextSmall, { color: isMotorRunning ? '#FFF' : COLORS.primary }]}>
+              {isMotorRunning ? 'STOP' : t('speedBtn')}
             </Text>
           </TouchableOpacity>
 
@@ -374,6 +375,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 1.5,
     borderColor: COLORS.primary,
+  },
+  actionBtnDanger: {
+    backgroundColor: COLORS.danger,
   },
   actionBtnPrimary: { backgroundColor: COLORS.primary },
   actionBtnTextSmall: {

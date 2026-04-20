@@ -29,6 +29,7 @@ export const translations: Record<Language, Record<string, string>> = {
     noMachineWarning: 'No machine connected. Go to Devices tab to register.',
     commandSent: 'Command Sent',
     speedStarted: 'Motors started at speed',
+    motorsStopped: 'Motors stopped',
     ballLaunched: 'Ball launch triggered',
     trainingStarted: 'Training session initiated',
     trainingStopped: 'Training stopped',
@@ -96,6 +97,7 @@ export const translations: Record<Language, Record<string, string>> = {
     noMachineWarning: 'Sin máquina conectada. Ve a Dispositivos para registrar.',
     commandSent: 'Comando Enviado',
     speedStarted: 'Motores iniciados a velocidad',
+    motorsStopped: 'Motores detenidos',
     ballLaunched: 'Lanzamiento de bola activado',
     trainingStarted: 'Sesión de entrenamiento iniciada',
 

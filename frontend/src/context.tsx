@@ -53,6 +53,7 @@ interface AppContextType {
   launchCount: number;
   isTraining: boolean;
   resetLaunchCount: () => void;
+  isMotorRunning: boolean;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -82,6 +83,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [vibrator, setVibrator] = useState(false);
   const [podsEnabled, setPodsEnabled] = useState(false);
   const [heater, setHeater] = useState(false);
+  const [isMotorRunning, setIsMotorRunning] = useState(false);
   const [launchCount, setLaunchCount] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
   const trainingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -210,7 +212,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function sendSpeedCommand() {
-    Alert.alert(t('commandSent'), `${t('speedStarted')} ${speed}`);
+    if (isMotorRunning) {
+      setIsMotorRunning(false);
+      Alert.alert(t('commandSent'), t('motorsStopped'));
+    } else {
+      setIsMotorRunning(true);
+      Alert.alert(t('commandSent'), `${t('speedStarted')} ${speed}`);
+    }
   }
 
   function sendLaunchCommand() {
@@ -279,6 +287,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         launchCount,
         isTraining,
         resetLaunchCount: () => setLaunchCount(0),
+        isMotorRunning,
       }}
     >
       {children}
