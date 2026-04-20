@@ -13,3 +13,9 @@ export const COLORS = {
   success: '#10B981',
   warning: '#F59E0B',
 };
+
+export const POD_COLORS: Record<string, string> = {
+  pod1: '#3B82F6', // Blue
+  pod2: '#10B981', // Green
+  pod3: '#EAB308', // Yellow
+};

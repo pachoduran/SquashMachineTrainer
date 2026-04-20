@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppProvider, useApp, ConnectionState } from '../src/context';
-import { COLORS } from '../src/theme';
+import { COLORS, POD_COLORS } from '../src/theme';
 
 function ConnectionStatusBar() {
   const { devices, connectionStatus, t } = useApp();
@@ -19,8 +19,11 @@ function ConnectionStatusBar() {
     );
   }
 
-  const dotColor = (state: ConnectionState) => {
-    if (state === 'connected') return COLORS.success;
+  const dotColor = (state: ConnectionState, role?: string) => {
+    if (state === 'connected') {
+      if (role && POD_COLORS[role]) return POD_COLORS[role];
+      return COLORS.success;
+    }
     if (state === 'connecting') return COLORS.warning;
     return COLORS.danger;
   };
@@ -33,12 +36,15 @@ function ConnectionStatusBar() {
           <Text style={csStyles.label}>M</Text>
         </View>
       )}
-      {pods.map((pod, i) => (
-        <View key={pod.id} style={csStyles.item} testID={`connection-status-pod-${i + 1}`}>
-          <View style={[csStyles.statusDot, { backgroundColor: dotColor(connectionStatus[pod.id] || 'disconnected') }]} />
-          <Text style={csStyles.label}>P{i + 1}</Text>
-        </View>
-      ))}
+      {pods.map((pod) => {
+        const podColor = dotColor(connectionStatus[pod.id] || 'disconnected', pod.role);
+        return (
+          <View key={pod.id} style={csStyles.item} testID={`connection-status-${pod.role}`}>
+            <View style={[csStyles.statusDot, { backgroundColor: podColor }]} />
+            <Text style={[csStyles.label, { color: podColor }]}>{pod.role.replace('pod', 'P')}</Text>
+          </View>
+        );
+      })}
     </View>
   );
 }

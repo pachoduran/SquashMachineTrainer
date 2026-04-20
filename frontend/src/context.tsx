@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
 import { translations, Language } from './i18n';
+import { CMD, POD_CMD, calculateSpeedValue, bleWrite, delay } from './bleCommands';
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -52,8 +53,9 @@ interface AppContextType {
   hasMachine: boolean;
   launchCount: number;
   isTraining: boolean;
-  resetLaunchCount: () => void;
   isMotorRunning: boolean;
+  activePod: number | null;
+  resetLaunchCount: () => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -86,16 +88,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isMotorRunning, setIsMotorRunning] = useState(false);
   const [launchCount, setLaunchCount] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
-  const trainingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [activePod, setActivePod] = useState<number | null>(null);
+
   const connectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trainingTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const autoLaunchRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const podSequenceIndexRef = useRef(0);
+  const isTrainingRef = useRef(false);
 
   const t = useCallback(
     (key: string) => translations[language][key] || key,
     [language]
   );
 
-  const podCount = devices.filter((d) => d.role.startsWith('pod')).length;
+  // Get sorted list of registered pod numbers
+  const registeredPods = devices
+    .filter((d) => d.role.startsWith('pod'))
+    .map((d) => parseInt(d.role.replace('pod', ''), 10))
+    .sort();
+  const podCount = registeredPods.length;
   const hasMachine = devices.some((d) => d.role === 'machine');
+
+  // Keep isTrainingRef in sync
+  useEffect(() => {
+    isTrainingRef.current = isTraining;
+  }, [isTraining]);
 
   // Fetch devices on mount
   useEffect(() => {
@@ -109,17 +126,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const status: Record<string, ConnectionState> = {};
-    devices.forEach((d) => {
-      status[d.id] = 'connecting';
-    });
+    devices.forEach((d) => { status[d.id] = 'connecting'; });
     setConnectionStatus(status);
 
     if (connectTimerRef.current) clearTimeout(connectTimerRef.current);
     connectTimerRef.current = setTimeout(() => {
       const connected: Record<string, ConnectionState> = {};
-      devices.forEach((d) => {
-        connected[d.id] = 'connected';
-      });
+      devices.forEach((d) => { connected[d.id] = 'connected'; });
       setConnectionStatus(connected);
     }, 1500);
 
@@ -135,6 +148,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     else if (podsMode === 'disabled') setPodsModeState('sequential');
   }, [podCount]);
 
+  // Mock: simulate pod touch when a pod is active during training
+  useEffect(() => {
+    if (activePod && isTraining) {
+      const mockDelay = 1500 + Math.random() * 2000; // 1.5-3.5s
+      const timer = setTimeout(() => {
+        if (isTrainingRef.current) {
+          handlePodResponse(activePod);
+        }
+      }, mockDelay);
+      return () => clearTimeout(timer);
+    }
+  }, [activePod, isTraining]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      clearAllTimers();
+    };
+  }, []);
+
   const setPodsMode = useCallback(
     (mode: string) => {
       if (podCount === 0) return;
@@ -143,6 +176,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [podCount]
   );
+
+  function clearAllTimers() {
+    trainingTimersRef.current.forEach(clearTimeout);
+    trainingTimersRef.current = [];
+    if (autoLaunchRef.current) {
+      clearInterval(autoLaunchRef.current);
+      autoLaunchRef.current = null;
+    }
+  }
+
+  function addTimer(fn: () => void, ms: number) {
+    const timer = setTimeout(() => {
+      if (isTrainingRef.current) fn();
+    }, ms);
+    trainingTimersRef.current.push(timer);
+    return timer;
+  }
+
+  // === Pod Logic ===
+
+  function lightNextPod() {
+    if (!isTrainingRef.current || registeredPods.length === 0) return;
+
+    let nextPodNum: number;
+    if (podsMode === 'random' && registeredPods.length > 1) {
+      // Random: pick a different pod than current
+      const available = registeredPods.filter((p) => p !== activePod);
+      nextPodNum = available[Math.floor(Math.random() * available.length)];
+    } else {
+      // Sequential
+      nextPodNum = registeredPods[podSequenceIndexRef.current % registeredPods.length];
+      podSequenceIndexRef.current++;
+    }
+
+    setActivePod(nextPodNum);
+    const cmd = POD_CMD[nextPodNum];
+    if (cmd) bleWrite(cmd);
+  }
+
+  function handlePodResponse(podNum: number) {
+    if (!isTrainingRef.current) return;
+
+    // Turn off all pods
+    bleWrite(CMD.POD_ALL_OFF);
+    setActivePod(null);
+
+    // Wait timeInterval, then launch ball and light next pod
+    addTimer(() => {
+      bleWrite(CMD.LAUNCH);
+      setLaunchCount((prev) => prev + 1);
+      lightNextPod();
+    }, timeInterval * 1000);
+  }
+
+  // === BLE Command Functions ===
 
   async function fetchDevices() {
     try {
@@ -167,9 +255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           role,
         }),
       });
-      if (res.ok) {
-        await fetchDevices();
-      }
+      if (res.ok) await fetchDevices();
     } catch (e) {
       console.error('Failed to register device:', e);
     }
@@ -193,49 +279,111 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 2500);
   }
 
+  // Vibrator: chr(12) on, chr(13) off
   function toggleVibrator() {
-    setVibrator(!vibrator);
+    const next = !vibrator;
+    setVibrator(next);
+    bleWrite(next ? CMD.VIBRATOR_ON : CMD.VIBRATOR_OFF);
   }
 
+  // Pods: send B/C/D to turn on, H to turn off all
   function togglePods() {
-    setPodsEnabled(!podsEnabled);
-  }
-
-  function toggleHeater() {
-    setHeater(!heater);
-  }
-
-  function sendSpeedCommand() {
-    setIsMotorRunning(!isMotorRunning);
-  }
-
-  function sendLaunchCommand() {
-    // BLE command will be sent here
-  }
-
-  function sendInitCommand() {
-    if (isTraining) {
-      if (trainingTimerRef.current) {
-        clearInterval(trainingTimerRef.current);
-        trainingTimerRef.current = null;
-      }
-      setIsTraining(false);
+    const next = !podsEnabled;
+    setPodsEnabled(next);
+    if (next) {
+      registeredPods.forEach((p) => {
+        const cmd = POD_CMD[p];
+        if (cmd) bleWrite(cmd);
+      });
     } else {
-      setIsTraining(true);
-      setLaunchCount(0);
-      const intervalMs = timeInterval * 1000;
-      trainingTimerRef.current = setInterval(() => {
-        setLaunchCount((prev) => prev + 1);
-      }, intervalMs);
+      bleWrite(CMD.POD_ALL_OFF);
     }
   }
 
-  // Cleanup training timer on unmount
-  useEffect(() => {
-    return () => {
-      if (trainingTimerRef.current) clearInterval(trainingTimerRef.current);
-    };
-  }, []);
+  // Heater: chr(38) on, chr(39) off
+  function toggleHeater() {
+    const next = !heater;
+    setHeater(next);
+    bleWrite(next ? CMD.HEATER_ON : CMD.HEATER_OFF);
+  }
+
+  // Speed: chr(36), wait 200ms, chr(speed*6+3)
+  // Stop: chr(11)
+  async function sendSpeedCommand() {
+    if (isMotorRunning) {
+      setIsMotorRunning(false);
+      bleWrite(CMD.MOTOR_STOP);
+    } else {
+      setIsMotorRunning(true);
+      bleWrite(CMD.MOTOR_START);
+      await delay(200);
+      bleWrite(calculateSpeedValue(speed));
+    }
+  }
+
+  // Launch: chr(14)
+  function sendLaunchCommand() {
+    bleWrite(CMD.LAUNCH);
+  }
+
+  // Init: full training sequence
+  async function sendInitCommand() {
+    if (isTraining) {
+      // === STOP TRAINING ===
+      clearAllTimers();
+      setIsTraining(false);
+      setActivePod(null);
+
+      bleWrite(CMD.MOTOR_STOP);
+      bleWrite(CMD.VIBRATOR_OFF);
+      bleWrite(CMD.POD_ALL_OFF);
+      setIsMotorRunning(false);
+      setVibrator(false);
+      return;
+    }
+
+    // === START TRAINING ===
+    setIsTraining(true);
+    setLaunchCount(0);
+    setActivePod(null);
+    podSequenceIndexRef.current = 0;
+
+    // 1. Start vibrator
+    setVibrator(true);
+    bleWrite(CMD.VIBRATOR_ON);
+    await delay(500);
+
+    if (!isTrainingRef.current) return; // cancelled during delay
+
+    // 2. Start motor
+    setIsMotorRunning(true);
+    bleWrite(CMD.MOTOR_START);
+    await delay(500);
+
+    if (!isTrainingRef.current) return;
+
+    // 3. Set speed
+    bleWrite(calculateSpeedValue(speed));
+
+    if (podCount === 0) {
+      // No pods: auto-launch mode
+      // First ball after 5 seconds, then every timeInterval
+      addTimer(() => {
+        bleWrite(CMD.LAUNCH);
+        setLaunchCount((prev) => prev + 1);
+
+        autoLaunchRef.current = setInterval(() => {
+          if (isTrainingRef.current) {
+            bleWrite(CMD.LAUNCH);
+            setLaunchCount((prev) => prev + 1);
+          }
+        }, timeInterval * 1000);
+      }, 5000);
+    } else {
+      // Pods mode: light first pod
+      lightNextPod();
+    }
+  }
 
   return (
     <AppContext.Provider
@@ -270,8 +418,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hasMachine,
         launchCount,
         isTraining,
-        resetLaunchCount: () => setLaunchCount(0),
         isMotorRunning,
+        activePod,
+        resetLaunchCount: () => setLaunchCount(0),
       }}
     >
       {children}

@@ -10,7 +10,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useApp } from '../src/context';
-import { COLORS } from '../src/theme';
+import { COLORS, POD_COLORS } from '../src/theme';
+
+const POD_LABELS: Record<number, string> = { 1: 'Pod 1', 2: 'Pod 2', 3: 'Pod 3' };
 
 function PodsModeSelectorSection() {
   const { t, podsMode, setPodsMode, podCount } = useApp();
@@ -103,6 +105,7 @@ export default function ControlsScreen() {
     launchCount,
     isTraining,
     isMotorRunning,
+    activePod,
   } = useApp();
 
   const adjustTime = (delta: number) => {
@@ -139,9 +142,19 @@ export default function ControlsScreen() {
           </View>
         )}
 
-        {/* Launch Counter */}
+        {/* Launch Counter + Active Pod */}
         <View style={styles.counterCard} testID="launch-counter">
-          <Text style={styles.counterLabel}>{t('launchCounter')}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.counterLabel}>{t('launchCounter')}</Text>
+            {activePod && (
+              <View style={styles.activePodRow}>
+                <View style={[styles.activePodDot, { backgroundColor: POD_COLORS[`pod${activePod}`] || COLORS.primary }]} />
+                <Text style={[styles.activePodText, { color: POD_COLORS[`pod${activePod}`] || COLORS.primary }]}>
+                  {POD_LABELS[activePod]}
+                </Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.counterValue, isTraining && styles.counterValueActive]}>
             {launchCount}
           </Text>
@@ -248,7 +261,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.2,
-    flex: 1,
+  },
+  activePodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 4,
+  },
+  activePodDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  activePodText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   counterValue: {
     color: COLORS.textPrimary,
