@@ -97,11 +97,11 @@ function DiscoveredDeviceCard({ device }: { device: DiscoveredDevice }) {
               <TouchableOpacity
                 key={role}
                 testID={`assign-${device.id}-${role}`}
-                style={[dStyles.roleBtn, taken && dStyles.roleBtnTaken]}
+                style={[dStyles.roleBtn, taken ? dStyles.roleBtnTaken : dStyles.roleBtnFree]}
                 onPress={() => handleAssign(role)}
               >
                 <Text
-                  style={[dStyles.roleBtnText, taken && dStyles.roleBtnTextTaken]}
+                  style={[dStyles.roleBtnText, !taken && dStyles.roleBtnTextFree]}
                 >
                   {ROLE_LABELS[role]}
                 </Text>
@@ -253,27 +253,31 @@ const dStyles = StyleSheet.create({
   roleRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    gap: 8,
     marginTop: 10,
   },
   roleBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  roleBtnFree: {
     borderColor: COLORS.primary,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
   },
   roleBtnTaken: {
     borderColor: COLORS.textDisabled,
-    opacity: 0.5,
+    backgroundColor: 'transparent',
   },
   roleBtnText: {
-    color: COLORS.primary,
-    fontSize: 12,
+    color: COLORS.textDisabled,
+    fontSize: 13,
     fontWeight: '700',
   },
-  roleBtnTextTaken: { color: COLORS.textDisabled },
+  roleBtnTextFree: { color: COLORS.primary },
   mockNote: {
     color: COLORS.textDisabled,
     fontSize: 10,
