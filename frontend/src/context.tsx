@@ -7,6 +7,7 @@ import {
   bleWrite, bleWriteToPod, bleWriteToAllPods,
   delay, scanForDevices, connectToDevice,
   IS_BLE_AVAILABLE, setOnDataReceived, setDeviceRoles, isDeviceConnected,
+  setOnDeviceDisconnected, checkDeviceConnection, reconnectDevice,
 } from './bleCommands';
 
 export interface Device {
@@ -156,7 +157,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Load devices + setup BLE + auto-connect ALL registered devices
+  // Load devices + setup BLE + auto-connect + monitor connections
   useEffect(() => {
     loadDevices().then((saved) => {
       if (IS_BLE_AVAILABLE && saved.length > 0) {
@@ -167,23 +168,111 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Listen for data from ANY device (pods send "0" then "5" separately)
     setOnDataReceived((data: string, fromMac: string) => {
       console.log(`[CTX] Data received: "${data}" from ${fromMac}`);
-      // Check if data contains "05" (pod touched response)
       if (data.includes('05') && isTrainingRef.current) {
         const current = activePodRef.current;
         if (current) {
-          // Verify it came from the correct pod
           const expectedMac = macByRoleRef.current[`pod${current}`];
           if (!expectedMac || fromMac === expectedMac) {
             console.log(`[CTX] Pod ${current} touched! Launching after timeInterval`);
             handlePodResponse(current);
-          } else {
-            console.log(`[CTX] Wrong pod touched. Expected pod${current} (${expectedMac}), got ${fromMac}`);
           }
         }
       }
     });
-    return () => setOnDataReceived(null);
+
+    // Listen for BLE disconnections → update status + try reconnect
+    setOnDeviceDisconnected((mac: string) => {
+      console.log(`[CTX] Device disconnected: ${mac}`);
+      // Find which device disconnected and update status
+      setConnectionStatus((prev) => {
+        const updated = { ...prev };
+        // Find device by MAC
+        for (const dev of devicesRef.current) {
+          if (dev.mac_address === mac) {
+            updated[dev.id] = 'disconnected';
+          }
+        }
+        return updated;
+      });
+
+      // Auto-reconnect after 3 seconds
+      setTimeout(() => {
+        const dev = devicesRef.current.find((d) => d.mac_address === mac);
+        if (dev && dev.role !== 'unassigned') {
+          console.log(`[CTX] Auto-reconnecting to ${dev.name}...`);
+          setConnectionStatus((prev) => ({ ...prev, [dev.id]: 'connecting' }));
+          reconnectDevice(mac).then((ok) => {
+            setConnectionStatus((prev) => ({
+              ...prev,
+              [dev.id]: ok ? 'connected' : 'disconnected',
+            }));
+            if (!ok) {
+              // Retry again in 5 seconds
+              scheduleReconnect(mac, dev.id);
+            }
+          });
+        }
+      }, 3000);
+    });
+
+    // Periodic connection check every 10 seconds
+    let checkInterval: ReturnType<typeof setInterval> | null = null;
+    if (IS_BLE_AVAILABLE) {
+      checkInterval = setInterval(() => {
+        checkAllConnections();
+      }, 10000);
+    }
+
+    return () => {
+      setOnDataReceived(null);
+      setOnDeviceDisconnected(null);
+      if (checkInterval) clearInterval(checkInterval);
+    };
   }, []);
+
+  const devicesRef = useRef<Device[]>([]);
+  useEffect(() => { devicesRef.current = devices; }, [devices]);
+
+  function scheduleReconnect(mac: string, devId: string) {
+    setTimeout(() => {
+      const dev = devicesRef.current.find((d) => d.mac_address === mac);
+      if (!dev || dev.role === 'unassigned') return;
+      console.log(`[CTX] Retry reconnect to ${mac}...`);
+      setConnectionStatus((prev) => ({ ...prev, [devId]: 'connecting' }));
+      reconnectDevice(mac).then((ok) => {
+        setConnectionStatus((prev) => ({
+          ...prev,
+          [devId]: ok ? 'connected' : 'disconnected',
+        }));
+      });
+    }, 5000);
+  }
+
+  // Check connection status of all registered devices
+  async function checkAllConnections() {
+    for (const dev of devicesRef.current) {
+      if (dev.role === 'unassigned') continue;
+      const connected = await checkDeviceConnection(dev.mac_address);
+      setConnectionStatus((prev) => {
+        const currentStatus = prev[dev.id];
+        if (connected && currentStatus !== 'connected') {
+          return { ...prev, [dev.id]: 'connected' };
+        }
+        if (!connected && currentStatus === 'connected') {
+          // Lost connection - try reconnect
+          console.log(`[CTX] Lost connection to ${dev.name}, reconnecting...`);
+          reconnectDevice(dev.mac_address).then((ok) => {
+            setConnectionStatus((p) => ({
+              ...p,
+              [dev.id]: ok ? 'connected' : 'disconnected',
+            }));
+          });
+          return { ...prev, [dev.id]: 'connecting' };
+        }
+        return prev;
+      });
+    }
+  }
 
   // Auto-connect to ALL registered devices (machine + pods)
   async function autoConnectAll(deviceList: Device[]) {

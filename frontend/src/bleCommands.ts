@@ -65,6 +65,12 @@ export function getBleManager() {
   return bleManagerInstance;
 }
 
+let onDeviceDisconnected: ((mac: string) => void) | null = null;
+
+export function setOnDeviceDisconnected(callback: ((mac: string) => void) | null) {
+  onDeviceDisconnected = callback;
+}
+
 export function setOnDataReceived(callback: ((data: string, fromMac: string) => void) | null) {
   onDataReceived = callback;
 }
@@ -253,6 +259,8 @@ const bufferTimers: Record<string, ReturnType<typeof setTimeout>> = {};
         connections[deviceMac].notifySub.remove();
       }
       delete connections[deviceMac];
+      // Notify context about disconnection
+      if (onDeviceDisconnected) onDeviceDisconnected(deviceMac);
     });
 
     console.log(`[BLE] Connected to ${deviceMac} ✓`);
@@ -330,6 +338,35 @@ export async function disconnectAll(): Promise<void> {
 // Check if a device is connected
 export function isDeviceConnected(mac: string): boolean {
   return !!connections[mac];
+}
+
+// Check actual connection status of a device (async)
+export async function checkDeviceConnection(mac: string): Promise<boolean> {
+  const manager = getBleManager();
+  if (!manager) return true; // mock mode
+
+  const conn = connections[mac];
+  if (!conn?.device) return false;
+
+  try {
+    const connected = await conn.device.isConnected();
+    return connected;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Try to reconnect a disconnected device
+export async function reconnectDevice(mac: string): Promise<boolean> {
+  console.log(`[BLE] Attempting reconnect to ${mac}...`);
+  // Clean up old connection if any
+  if (connections[mac]) {
+    try {
+      if (connections[mac].notifySub) connections[mac].notifySub.remove();
+    } catch (e) { /* ignore */ }
+    delete connections[mac];
+  }
+  return await connectToDevice(mac);
 }
 
 export function delay(ms: number): Promise<void> {
