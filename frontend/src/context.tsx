@@ -127,9 +127,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Load devices on mount + setup BLE data listener
+  // Load devices on mount + setup BLE data listener + auto-connect machine
   useEffect(() => {
-    loadDevices();
+    loadDevices().then(() => {
+      // Auto-connect to machine after loading devices
+      autoConnectMachine();
+    });
     setOnDataReceived((data: string) => {
       if (data === CMD.POD_TOUCHED && isTrainingRef.current) {
         const currentPod = activePod;
@@ -138,6 +141,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     return () => setOnDataReceived(null);
   }, []);
+
+  // Auto-connect BLE to the machine when app starts
+  async function autoConnectMachine() {
+    if (!IS_BLE_AVAILABLE) return;
+    try {
+      const json = await AsyncStorage.getItem(STORAGE_KEY);
+      if (json) {
+        const saved: Device[] = JSON.parse(json);
+        const machine = saved.find((d) => d.role === 'machine');
+        if (machine) {
+          console.log(`[BLE] Auto-connecting to machine: ${machine.name} (${machine.mac_address})`);
+          connectToDevice(machine.mac_address).catch((e: any) => {
+            console.log('[BLE] Auto-connect failed:', e?.message || e);
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[BLE] Auto-connect error:', e);
+    }
+  }
 
   // Simulate BLE connection when devices change
   useEffect(() => {
@@ -222,10 +245,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     await saveDevices(updated);
 
-    // Try BLE connect in background
-    if (IS_BLE_AVAILABLE) {
+    // Only connect BLE to the MACHINE - all commands go through machine
+    // Pods connect to the machine internally, not to the phone
+    if (IS_BLE_AVAILABLE && role === 'machine') {
       connectToDevice(discovered.mac_address).catch((e: any) => {
-        console.log('[REG] BLE connect deferred:', e?.message || e);
+        console.log('[REG] Machine BLE connect deferred:', e?.message || e);
       });
     }
   }
