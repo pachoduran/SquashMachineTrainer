@@ -50,12 +50,12 @@ function ConnectionStatusBar() {
 }
 
 const csStyles = StyleSheet.create({
-  container: { flexDirection: 'row', alignItems: 'center', marginRight: 14, gap: 8 },
-  item: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  statusDot: { width: 9, height: 9, borderRadius: 5 },
-  label: { color: COLORS.textSecondary, fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.textDisabled },
-  noDevText: { color: COLORS.textDisabled, fontSize: 10, maxWidth: 100 },
+  container: { flexDirection: 'row', alignItems: 'center', marginRight: 14, gap: 12 },
+  item: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statusDot: { width: 14, height: 14, borderRadius: 7 },
+  label: { color: COLORS.textSecondary, fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
+  dot: { width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.textDisabled },
+  noDevText: { color: COLORS.textDisabled, fontSize: 12, maxWidth: 120 },
 });
 
 function TabLayout() {
