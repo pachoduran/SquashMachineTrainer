@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations, Language } from './i18n';
-import { CMD, POD_CMD, calculateSpeedValue, bleWrite, delay, scanForDevices, connectToDevice, IS_BLE_AVAILABLE, setOnDataReceived, disconnectDevice } from './bleCommands';
-
-const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
+import { CMD, POD_CMD, calculateSpeedValue, bleWrite, delay, scanForDevices, connectToDevice, IS_BLE_AVAILABLE, setOnDataReceived } from './bleCommands';
 
 export interface Device {
   id: string;
@@ -27,7 +26,6 @@ interface AppContextType {
   setLanguage: (lang: Language) => void;
   t: (key: string) => string;
   devices: Device[];
-  fetchDevices: () => Promise<void>;
   registerDevice: (discovered: DiscoveredDevice, role: string) => Promise<void>;
   removeDevice: (id: string) => Promise<void>;
   connectionStatus: Record<string, ConnectionState>;
@@ -59,6 +57,7 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | null>(null);
+const STORAGE_KEY = '@smt_devices';
 
 export function useApp() {
   const ctx = useContext(AppContext);
@@ -94,7 +93,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [language]
   );
 
-  // Get sorted list of registered pod numbers
   const registeredPods = devices
     .filter((d) => d.role.startsWith('pod'))
     .map((d) => parseInt(d.role.replace('pod', ''), 10))
@@ -102,22 +100,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const podCount = registeredPods.length;
   const hasMachine = devices.some((d) => d.role === 'machine');
 
-  // Keep isTrainingRef in sync
-  useEffect(() => {
-    isTrainingRef.current = isTraining;
-  }, [isTraining]);
+  useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
 
-  // Fetch devices on mount + setup BLE data listener
+  // ========== LOCAL STORAGE ==========
+
+  async function loadDevices() {
+    try {
+      const json = await AsyncStorage.getItem(STORAGE_KEY);
+      if (json) {
+        const saved = JSON.parse(json);
+        setDevices(saved);
+        console.log(`[STORAGE] Loaded ${saved.length} devices`);
+      }
+    } catch (e) {
+      console.error('[STORAGE] Load error:', e);
+    }
+  }
+
+  async function saveDevices(newDevices: Device[]) {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newDevices));
+      setDevices(newDevices);
+      console.log(`[STORAGE] Saved ${newDevices.length} devices`);
+    } catch (e) {
+      console.error('[STORAGE] Save error:', e);
+    }
+  }
+
+  // Load devices on mount + setup BLE data listener
   useEffect(() => {
-    fetchDevices();
-    // Listen for BLE data (pod touch "05")
+    loadDevices();
     setOnDataReceived((data: string) => {
       if (data === CMD.POD_TOUCHED && isTrainingRef.current) {
-        // Pod was touched - handle response for active pod
         const currentPod = activePod;
-        if (currentPod) {
-          handlePodResponse(currentPod);
-        }
+        if (currentPod) handlePodResponse(currentPod);
       }
     });
     return () => setOnDataReceived(null);
@@ -145,31 +161,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [devices]);
 
-  // Auto-adjust pods mode based on pod count
+  // Auto-adjust pods mode
   useEffect(() => {
     if (podCount === 0) setPodsModeState('disabled');
     else if (podCount === 1) setPodsModeState('sequential');
     else if (podsMode === 'disabled') setPodsModeState('sequential');
   }, [podCount]);
 
-  // Mock: simulate pod touch when a pod is active during training
+  // Mock: simulate pod touch when active during training
   useEffect(() => {
     if (activePod && isTraining) {
-      const mockDelay = 1500 + Math.random() * 2000; // 1.5-3.5s
+      const mockDelay = 1500 + Math.random() * 2000;
       const timer = setTimeout(() => {
-        if (isTrainingRef.current) {
-          handlePodResponse(activePod);
-        }
+        if (isTrainingRef.current) handlePodResponse(activePod);
       }, mockDelay);
       return () => clearTimeout(timer);
     }
   }, [activePod, isTraining]);
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      clearAllTimers();
-    };
+    return () => { clearAllTimers(); };
   }, []);
 
   const setPodsMode = useCallback(
@@ -180,6 +191,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [podCount]
   );
+
+  // ========== DEVICE MANAGEMENT (LOCAL) ==========
+
+  async function registerDevice(discovered: DiscoveredDevice, role: string) {
+    console.log(`[REG] Registering ${discovered.name} as ${role}`);
+
+    let updated = [...devices];
+
+    // If same MAC exists, update its role
+    const existingIdx = updated.findIndex((d) => d.mac_address === discovered.mac_address);
+    if (existingIdx >= 0) {
+      updated[existingIdx] = { ...updated[existingIdx], role, name: discovered.name };
+    } else {
+      // Unassign role from other device if taken
+      if (role !== 'unassigned') {
+        updated = updated.map((d) =>
+          d.role === role ? { ...d, role: 'unassigned' } : d
+        );
+      }
+      // Add new device
+      updated.push({
+        id: `dev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        mac_address: discovered.mac_address,
+        name: discovered.name,
+        role,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    await saveDevices(updated);
+
+    // Try BLE connect in background
+    if (IS_BLE_AVAILABLE) {
+      connectToDevice(discovered.mac_address).catch((e: any) => {
+        console.log('[REG] BLE connect deferred:', e?.message || e);
+      });
+    }
+  }
+
+  async function removeDevice(id: string) {
+    const updated = devices.filter((d) => d.id !== id);
+    await saveDevices(updated);
+  }
+
+  // ========== SCANNING ==========
+
+  function startScan() {
+    setIsScanning(true);
+    setDiscoveredDevices([]);
+
+    const found: DiscoveredDevice[] = [];
+    scanForDevices(
+      (device) => {
+        if (!found.some((d) => d.mac_address === device.mac_address)) {
+          found.push(device);
+          setDiscoveredDevices([...found]);
+        }
+      },
+      () => { setIsScanning(false); },
+      8000
+    );
+  }
+
+  // ========== TRAINING LOGIC ==========
 
   function clearAllTimers() {
     trainingTimersRef.current.forEach(clearTimeout);
@@ -198,18 +273,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return timer;
   }
 
-  // === Pod Logic ===
-
   function lightNextPod() {
     if (!isTrainingRef.current || registeredPods.length === 0) return;
 
     let nextPodNum: number;
     if (podsMode === 'random' && registeredPods.length > 1) {
-      // Random: pick a different pod than current
       const available = registeredPods.filter((p) => p !== activePod);
       nextPodNum = available[Math.floor(Math.random() * available.length)];
     } else {
-      // Sequential
       nextPodNum = registeredPods[podSequenceIndexRef.current % registeredPods.length];
       podSequenceIndexRef.current++;
     }
@@ -221,12 +292,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function handlePodResponse(podNum: number) {
     if (!isTrainingRef.current) return;
-
-    // Turn off all pods
     bleWrite(CMD.POD_ALL_OFF);
     setActivePod(null);
 
-    // Wait timeInterval, then launch ball and light next pod
     addTimer(() => {
       bleWrite(CMD.LAUNCH);
       setLaunchCount((prev) => prev + 1);
@@ -234,104 +302,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, timeInterval * 1000);
   }
 
-  // === BLE Command Functions ===
+  // ========== COMMANDS ==========
 
-  async function fetchDevices() {
-    try {
-      const res = await fetch(`${API_BASE}/api/devices`);
-      if (res.ok) {
-        const data = await res.json();
-        setDevices(data);
-      }
-    } catch (e) {
-      console.error('Failed to fetch devices:', e);
-    }
-  }
-
-  async function removeDevice(id: string) {
-    try {
-      await fetch(`${API_BASE}/api/devices/${id}`, { method: 'DELETE' });
-      await fetchDevices();
-    } catch (e) {
-      console.error('Failed to remove device:', e);
-    }
-  }
-
-  function startScan() {
-    setIsScanning(true);
-    setDiscoveredDevices([]);
-
-    const found: DiscoveredDevice[] = [];
-    scanForDevices(
-      (device) => {
-        // Avoid duplicates
-        if (!found.some((d) => d.mac_address === device.mac_address)) {
-          found.push(device);
-          setDiscoveredDevices([...found]);
-        }
-      },
-      () => {
-        setIsScanning(false);
-      },
-      5000
-    );
-  }
-
-  // Auto-connect to registered devices on startup (BLE real only)
-  async function autoConnectDevices() {
-    if (!IS_BLE_AVAILABLE) return;
-    for (const device of devices) {
-      if (device.role !== 'unassigned') {
-        const connected = await connectToDevice(device.mac_address);
-        if (connected) {
-          setConnectionStatus((prev) => ({ ...prev, [device.id]: 'connected' }));
-        } else {
-          setConnectionStatus((prev) => ({ ...prev, [device.id]: 'disconnected' }));
-        }
-      }
-    }
-  }
-
-  // Register device - save to DB first, then try BLE connect in background
-  async function registerDeviceAndConnect(discovered: DiscoveredDevice, role: string) {
-    // 1. Save to backend DB first (this is what matters)
-    try {
-      console.log(`[REG] Saving ${discovered.name} as ${role}...`);
-      const res = await fetch(`${API_BASE}/api/devices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mac_address: discovered.mac_address,
-          name: discovered.name,
-          role,
-        }),
-      });
-      if (res.ok) {
-        console.log(`[REG] Saved successfully`);
-        await fetchDevices();
-      } else {
-        console.error(`[REG] Server error: ${res.status}`);
-      }
-    } catch (e: any) {
-      console.error('[REG] Network error:', e.message || e);
-    }
-
-    // 2. Try BLE connect in background (don't block registration)
-    if (IS_BLE_AVAILABLE) {
-      connectToDevice(discovered.mac_address).catch((e: any) => {
-        console.error('[REG] BLE connect failed (non-blocking):', e.message || e);
-      });
-    }
-  }
-
-  // Vibrator: chr(12) on, chr(13) off
   function toggleVibrator() {
     const next = !vibrator;
     setVibrator(next);
     bleWrite(next ? CMD.VIBRATOR_ON : CMD.VIBRATOR_OFF);
   }
 
-  // Pods: send B/C/D to turn on, H to turn off all
   function togglePods() {
     const next = !podsEnabled;
     setPodsEnabled(next);
@@ -345,15 +323,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Heater: chr(38) on, chr(39) off
   function toggleHeater() {
     const next = !heater;
     setHeater(next);
     bleWrite(next ? CMD.HEATER_ON : CMD.HEATER_OFF);
   }
 
-  // Speed: chr(36), wait 200ms, chr(speed*6+3)
-  // Stop: chr(11)
   async function sendSpeedCommand() {
     if (isMotorRunning) {
       setIsMotorRunning(false);
@@ -366,19 +341,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Launch: chr(14)
   function sendLaunchCommand() {
     bleWrite(CMD.LAUNCH);
   }
 
-  // Init: full training sequence
   async function sendInitCommand() {
     if (isTraining) {
-      // === STOP TRAINING ===
       clearAllTimers();
       setIsTraining(false);
       setActivePod(null);
-
       bleWrite(CMD.MOTOR_STOP);
       bleWrite(CMD.VIBRATOR_OFF);
       bleWrite(CMD.POD_ALL_OFF);
@@ -387,36 +358,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // === START TRAINING ===
     setIsTraining(true);
     setLaunchCount(0);
     setActivePod(null);
     podSequenceIndexRef.current = 0;
 
-    // 1. Start vibrator
     setVibrator(true);
     bleWrite(CMD.VIBRATOR_ON);
     await delay(500);
+    if (!isTrainingRef.current) return;
 
-    if (!isTrainingRef.current) return; // cancelled during delay
-
-    // 2. Start motor
     setIsMotorRunning(true);
     bleWrite(CMD.MOTOR_START);
     await delay(500);
-
     if (!isTrainingRef.current) return;
 
-    // 3. Set speed
     bleWrite(calculateSpeedValue(speed));
 
     if (podCount === 0) {
-      // No pods: auto-launch mode
-      // First ball after 5 seconds, then every timeInterval
       addTimer(() => {
         bleWrite(CMD.LAUNCH);
         setLaunchCount((prev) => prev + 1);
-
         autoLaunchRef.current = setInterval(() => {
           if (isTrainingRef.current) {
             bleWrite(CMD.LAUNCH);
@@ -425,7 +387,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }, timeInterval * 1000);
       }, 5000);
     } else {
-      // Pods mode: light first pod
       lightNextPod();
     }
   }
@@ -433,39 +394,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider
       value={{
-        language,
-        setLanguage,
-        t,
-        devices,
-        fetchDevices,
-        registerDevice: registerDeviceAndConnect,
-        removeDevice,
-        connectionStatus,
-        isScanning,
-        discoveredDevices,
-        startScan,
-        podsMode,
-        setPodsMode,
-        timeInterval,
-        setTimeInterval,
-        speed,
-        setSpeed,
-        vibrator,
-        toggleVibrator,
-        podsEnabled,
-        togglePods,
-        heater,
-        toggleHeater,
-        sendSpeedCommand,
-        sendLaunchCommand,
-        sendInitCommand,
-        podCount,
-        hasMachine,
-        launchCount,
-        isTraining,
-        isMotorRunning,
-        activePod,
-        resetLaunchCount: () => setLaunchCount(0),
+        language, setLanguage, t,
+        devices, registerDevice, removeDevice,
+        connectionStatus, isScanning, discoveredDevices, startScan,
+        podsMode, setPodsMode, timeInterval, setTimeInterval,
+        speed, setSpeed,
+        vibrator, toggleVibrator, podsEnabled, togglePods, heater, toggleHeater,
+        sendSpeedCommand, sendLaunchCommand, sendInitCommand,
+        podCount, hasMachine, launchCount, isTraining, isMotorRunning,
+        activePod, resetLaunchCount: () => setLaunchCount(0),
       }}
     >
       {children}
