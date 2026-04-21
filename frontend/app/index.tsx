@@ -110,6 +110,7 @@ export default function ControlsScreen() {
     isTraining,
     isMotorRunning,
     activePod,
+    totalLaunchCount,
   } = useApp();
 
   const adjustTime = (delta: number) => {
@@ -146,8 +147,15 @@ export default function ControlsScreen() {
           </View>
         )}
 
-        {/* Launch Counter + Active Pod */}
+        {/* Launch Counters: Total (left) + Session (right) */}
         <View style={styles.counterCard} testID="launch-counter">
+          {/* Total counter - small, left */}
+          <View style={styles.totalCounterBox} testID="total-launch-counter">
+            <Text style={styles.totalLabel}>TOTAL</Text>
+            <Text style={styles.totalValue}>{totalLaunchCount}</Text>
+          </View>
+
+          {/* Session counter + active pod */}
           <View style={{ flex: 1 }}>
             <Text style={styles.counterLabel}>{t('launchCounter')}</Text>
             {activePod && (
@@ -259,6 +267,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     marginBottom: 12,
+    gap: 10,
+  },
+  totalCounterBox: {
+    alignItems: 'center',
+    backgroundColor: COLORS.surfaceElevated,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  totalLabel: {
+    color: COLORS.textDisabled,
+    fontSize: 8,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  totalValue: {
+    color: COLORS.textSecondary,
+    fontSize: 20,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
   },
   counterLabel: {
     color: COLORS.textSecondary,

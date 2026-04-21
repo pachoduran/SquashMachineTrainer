@@ -55,6 +55,7 @@ interface AppContextType {
   podCount: number;
   hasMachine: boolean;
   launchCount: number;
+  totalLaunchCount: number;
   isTraining: boolean;
   isMotorRunning: boolean;
   activePod: number | null;
@@ -84,6 +85,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [heater, setHeater] = useState(false);
   const [isMotorRunning, setIsMotorRunning] = useState(false);
   const [launchCount, setLaunchCount] = useState(0);
+  const [totalLaunchCount, setTotalLaunchCount] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
   const [activePod, setActivePod] = useState<number | null>(null);
 
@@ -373,6 +375,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addTimer(() => {
       bleWrite(CMD.LAUNCH);
       setLaunchCount((prev) => prev + 1);
+      setTotalLaunchCount((prev) => prev + 1);
       lightNextPod();
     }, intervalMs);
   }
@@ -422,9 +425,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Launch: sent to MACHINE
+  // Launch: sent to MACHINE (manual launch also counts)
   function sendLaunchCommand() {
     bleWrite(CMD.LAUNCH);
+    setLaunchCount((prev) => prev + 1);
+    setTotalLaunchCount((prev) => prev + 1);
   }
 
   // Init: vibrator + motor to MACHINE, pods to respective PODS
@@ -469,10 +474,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       addTimer(() => {
         bleWrite(CMD.LAUNCH);
         setLaunchCount((prev) => prev + 1);
+        setTotalLaunchCount((prev) => prev + 1);
         autoLaunchRef.current = setInterval(() => {
           if (isTrainingRef.current) {
             bleWrite(CMD.LAUNCH);
             setLaunchCount((prev) => prev + 1);
+            setTotalLaunchCount((prev) => prev + 1);
           }
         }, timeIntervalRef.current * 1000);
       }, 5000);
@@ -494,7 +501,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         speed, setSpeed,
         vibrator, toggleVibrator, podsEnabled, togglePods, heater, toggleHeater,
         sendSpeedCommand, sendLaunchCommand, sendInitCommand,
-        podCount, hasMachine, launchCount, isTraining, isMotorRunning,
+        podCount, hasMachine, launchCount, totalLaunchCount, isTraining, isMotorRunning,
         activePod, resetLaunchCount: () => setLaunchCount(0),
       }}
     >
