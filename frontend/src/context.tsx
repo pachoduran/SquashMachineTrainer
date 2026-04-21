@@ -360,10 +360,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     bleWriteToPod(podNum, CMD.POD_ALL_OFF);
     setActivePod(null);
 
+    // Wait timeInterval, then launch ball, then immediately light next pod
     addTimer(() => {
-      // Launch ball from MACHINE
       bleWrite(CMD.LAUNCH);
       setLaunchCount((prev) => prev + 1);
+      // Immediately light next pod after launching
       lightNextPod();
     }, timeInterval * 1000);
   }
@@ -454,8 +455,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // 3. Set speed (machine)
     bleWrite(calculateSpeedValue(speed));
 
-    if (podCount === 0) {
-      // No pods: auto-launch from machine
+    if (podCount === 0 || podsMode === 'disabled') {
+      // No pods or pods disabled: auto-launch from machine
+      // First ball after 5 seconds, then every timeInterval
       addTimer(() => {
         bleWrite(CMD.LAUNCH);
         setLaunchCount((prev) => prev + 1);
@@ -467,8 +469,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }, timeInterval * 1000);
       }, 5000);
     } else {
-      // With pods: light first pod
-      lightNextPod();
+      // With pods: light first pod after 7 seconds
+      addTimer(() => {
+        lightNextPod();
+      }, 7000);
     }
   }
 
