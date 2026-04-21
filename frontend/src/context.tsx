@@ -77,7 +77,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isScanning, setIsScanning] = useState(false);
   const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredDevice[]>([]);
   const [podsMode, setPodsModeState] = useState('disabled');
-  const [timeInterval, setTimeInterval] = useState(2.5);
+  const [timeInterval, setTimeInterval] = useState(1.0);
   const [speed, setSpeed] = useState(1);
   const [vibrator, setVibrator] = useState(false);
   const [podsEnabled, setPodsEnabled] = useState(false);
@@ -92,6 +92,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const podSequenceIndexRef = useRef(0);
   const isTrainingRef = useRef(false);
   const activePodRef = useRef<number | null>(null);
+  const macByRoleRef = useRef<Record<string, string>>({});
 
   const t = useCallback(
     (key: string) => translations[language][key] || key,
@@ -117,6 +118,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
     setDeviceRoles(roles);
+    macByRoleRef.current = roles;
   }, [devices]);
 
   // ========== LOCAL STORAGE ==========
@@ -154,13 +156,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Listen for data from ANY device (pods send "05" when touched)
+    // Listen for data from ANY device (pods send "0" then "5" separately)
     setOnDataReceived((data: string, fromMac: string) => {
-      if (data === CMD.POD_TOUCHED && isTrainingRef.current) {
-        // Find which pod sent "05"
+      console.log(`[CTX] Data received: "${data}" from ${fromMac}`);
+      // Check if data contains "05" (pod touched response)
+      if (data.includes('05') && isTrainingRef.current) {
         const current = activePodRef.current;
         if (current) {
-          handlePodResponse(current);
+          // Verify it came from the correct pod
+          const expectedMac = macByRoleRef.current[`pod${current}`];
+          if (!expectedMac || fromMac === expectedMac) {
+            console.log(`[CTX] Pod ${current} touched! Launching after timeInterval`);
+            handlePodResponse(current);
+          } else {
+            console.log(`[CTX] Wrong pod touched. Expected pod${current} (${expectedMac}), got ${fromMac}`);
+          }
         }
       }
     });
@@ -220,8 +230,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setPodsMode = useCallback(
     (mode: string) => {
+      // Always allow 'disabled' (user can choose no pods even if pods registered)
+      if (mode === 'disabled') { setPodsModeState('disabled'); return; }
       if (podCount === 0) return;
-      if (podCount === 1 && mode !== 'sequential') return;
+      if (podCount === 1 && mode === 'random') return;
       setPodsModeState(mode);
     },
     [podCount]

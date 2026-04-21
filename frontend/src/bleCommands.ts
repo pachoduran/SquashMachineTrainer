@@ -201,6 +201,10 @@ export async function connectToDevice(deviceMac: string): Promise<boolean> {
           console.log(`[BLE] ${deviceMac} write char: ${uuid}`);
         }
 
+// Buffer per device to accumulate incoming data (pods send "0" and "5" separately)
+const dataBuffers: Record<string, string> = {};
+const bufferTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
         // Notify characteristic (for receiving data like "05" from pods)
         if (char.isNotifiable) {
           notifySub = char.monitor((error: any, characteristic: any) => {
@@ -208,8 +212,31 @@ export async function connectToDevice(deviceMac: string): Promise<boolean> {
             if (characteristic?.value) {
               try {
                 const decoded = atob(characteristic.value);
-                console.log(`[BLE] Received from ${deviceMac}: "${decoded}"`);
-                if (onDataReceived) onDataReceived(decoded, deviceMac);
+                console.log(`[BLE] Raw from ${deviceMac}: "${decoded}" (${decoded.split('').map(c => c.charCodeAt(0))})`);
+
+                // Accumulate in buffer - pods may send "0" then "5" separately
+                if (!dataBuffers[deviceMac]) dataBuffers[deviceMac] = '';
+                dataBuffers[deviceMac] += decoded;
+
+                // Clear previous timer and set new one
+                if (bufferTimers[deviceMac]) clearTimeout(bufferTimers[deviceMac]);
+                bufferTimers[deviceMac] = setTimeout(() => {
+                  const buffered = dataBuffers[deviceMac] || '';
+                  dataBuffers[deviceMac] = '';
+                  if (buffered.length > 0) {
+                    console.log(`[BLE] Buffered from ${deviceMac}: "${buffered}"`);
+                    if (onDataReceived) onDataReceived(buffered, deviceMac);
+                  }
+                }, 100); // Wait 100ms for more data before processing
+
+                // Also check immediately if we have "05" in buffer
+                if (dataBuffers[deviceMac].includes('05')) {
+                  if (bufferTimers[deviceMac]) clearTimeout(bufferTimers[deviceMac]);
+                  const buffered = dataBuffers[deviceMac];
+                  dataBuffers[deviceMac] = '';
+                  console.log(`[BLE] Got "05" from ${deviceMac}`);
+                  if (onDataReceived) onDataReceived(buffered, deviceMac);
+                }
               } catch (e) { /* decode error */ }
             }
           });

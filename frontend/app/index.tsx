@@ -21,8 +21,12 @@ function PodsModeSelectorSection() {
     podCount === 0
       ? [{ key: 'disabled', label: t('disabled') }]
       : podCount === 1
-        ? [{ key: 'sequential', label: t('sequential') }]
+        ? [
+            { key: 'disabled', label: 'Off' },
+            { key: 'sequential', label: t('sequential') },
+          ]
         : [
+            { key: 'disabled', label: 'Off' },
             { key: 'sequential', label: t('sequential') },
             { key: 'random', label: t('random') },
           ];
