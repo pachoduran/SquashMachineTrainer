@@ -77,7 +77,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isScanning, setIsScanning] = useState(false);
   const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredDevice[]>([]);
   const [podsMode, setPodsModeState] = useState('disabled');
-  const [timeInterval, setTimeInterval] = useState(1.0);
+  const [timeInterval, setTimeIntervalState] = useState(2.5);
   const [speed, setSpeed] = useState(1);
   const [vibrator, setVibrator] = useState(false);
   const [podsEnabled, setPodsEnabled] = useState(false);
@@ -208,7 +208,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [devices]);
 
-  // Auto-adjust pods mode
+  // Auto-adjust time interval when pods mode changes
+  useEffect(() => {
+    if (podsMode === 'disabled') {
+      setTimeIntervalState(2.5);
+    } else {
+      setTimeIntervalState(1.0);
+    }
+  }, [podsMode]);
+
+  function setTimeInterval(val: number) {
+    setTimeIntervalState(val);
+  }
   useEffect(() => {
     if (podCount === 0) setPodsModeState('disabled');
     else if (podCount === 1) setPodsModeState('sequential');
