@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
 import { translations, Language } from './i18n';
-import { CMD, POD_CMD, calculateSpeedValue, bleWrite, delay } from './bleCommands';
+import { CMD, POD_CMD, calculateSpeedValue, bleWrite, delay, scanForDevices, connectToDevice, IS_BLE_AVAILABLE, setOnDataReceived, disconnectDevice } from './bleCommands';
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -66,13 +66,6 @@ export function useApp() {
   return ctx;
 }
 
-const MOCK_DISCOVERED: DiscoveredDevice[] = [
-  { id: 'mock-1', name: 'JDY-32-A1B2', mac_address: 'AA:BB:CC:DD:EE:01', rssi: -42 },
-  { id: 'mock-2', name: 'JDY-23-C3D4', mac_address: 'AA:BB:CC:DD:EE:02', rssi: -55 },
-  { id: 'mock-3', name: 'JDY-23-E5F6', mac_address: 'AA:BB:CC:DD:EE:03', rssi: -61 },
-  { id: 'mock-4', name: 'JDY-08-G7H8', mac_address: 'AA:BB:CC:DD:EE:04', rssi: -58 },
-];
-
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>('en');
   const [devices, setDevices] = useState<Device[]>([]);
@@ -114,9 +107,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isTrainingRef.current = isTraining;
   }, [isTraining]);
 
-  // Fetch devices on mount
+  // Fetch devices on mount + setup BLE data listener
   useEffect(() => {
     fetchDevices();
+    // Listen for BLE data (pod touch "05")
+    setOnDataReceived((data: string) => {
+      if (data === CMD.POD_TOUCHED && isTrainingRef.current) {
+        // Pod was touched - handle response for active pod
+        const currentPod = activePod;
+        if (currentPod) {
+          handlePodResponse(currentPod);
+        }
+      }
+    });
+    return () => setOnDataReceived(null);
   }, []);
 
   // Simulate BLE connection when devices change
@@ -244,23 +248,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function registerDevice(discovered: DiscoveredDevice, role: string) {
-    try {
-      const res = await fetch(`${API_BASE}/api/devices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mac_address: discovered.mac_address,
-          name: discovered.name,
-          role,
-        }),
-      });
-      if (res.ok) await fetchDevices();
-    } catch (e) {
-      console.error('Failed to register device:', e);
-    }
-  }
-
   async function removeDevice(id: string) {
     try {
       await fetch(`${API_BASE}/api/devices/${id}`, { method: 'DELETE' });
@@ -273,10 +260,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   function startScan() {
     setIsScanning(true);
     setDiscoveredDevices([]);
-    setTimeout(() => {
-      setDiscoveredDevices(MOCK_DISCOVERED);
-      setIsScanning(false);
-    }, 2500);
+
+    const found: DiscoveredDevice[] = [];
+    scanForDevices(
+      (device) => {
+        // Avoid duplicates
+        if (!found.some((d) => d.mac_address === device.mac_address)) {
+          found.push(device);
+          setDiscoveredDevices([...found]);
+        }
+      },
+      () => {
+        setIsScanning(false);
+      },
+      5000
+    );
+  }
+
+  // Auto-connect to registered devices on startup (BLE real only)
+  async function autoConnectDevices() {
+    if (!IS_BLE_AVAILABLE) return;
+    for (const device of devices) {
+      if (device.role !== 'unassigned') {
+        const connected = await connectToDevice(device.mac_address);
+        if (connected) {
+          setConnectionStatus((prev) => ({ ...prev, [device.id]: 'connected' }));
+        } else {
+          setConnectionStatus((prev) => ({ ...prev, [device.id]: 'disconnected' }));
+        }
+      }
+    }
+  }
+
+  // Register device and try to connect
+  async function registerDeviceAndConnect(discovered: DiscoveredDevice, role: string) {
+    try {
+      const res = await fetch(`${API_BASE}/api/devices`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mac_address: discovered.mac_address,
+          name: discovered.name,
+          role,
+        }),
+      });
+      if (res.ok) {
+        // Try to connect via BLE
+        if (IS_BLE_AVAILABLE) {
+          await connectToDevice(discovered.mac_address);
+        }
+        await fetchDevices();
+      }
+    } catch (e) {
+      console.error('Failed to register device:', e);
+    }
   }
 
   // Vibrator: chr(12) on, chr(13) off
@@ -393,7 +430,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         t,
         devices,
         fetchDevices,
-        registerDevice,
+        registerDevice: registerDeviceAndConnect,
         removeDevice,
         connectionStatus,
         isScanning,
