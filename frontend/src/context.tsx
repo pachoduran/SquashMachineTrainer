@@ -93,6 +93,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isTrainingRef = useRef(false);
   const activePodRef = useRef<number | null>(null);
   const macByRoleRef = useRef<Record<string, string>>({});
+  const timeIntervalRef = useRef(2.5);
+  const registeredPodsRef = useRef<number[]>([]);
+  const podsModeRef = useRef('disabled');
 
   const t = useCallback(
     (key: string) => translations[language][key] || key,
@@ -108,6 +111,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
   useEffect(() => { activePodRef.current = activePod; }, [activePod]);
+  useEffect(() => { timeIntervalRef.current = timeInterval; }, [timeInterval]);
+  useEffect(() => { registeredPodsRef.current = registeredPods; }, [registeredPods.join(',')]);
+  useEffect(() => { podsModeRef.current = podsMode; }, [podsMode]);
 
   // Update BLE role-to-MAC mapping when devices change
   useEffect(() => {
@@ -337,19 +343,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function lightNextPod() {
-    if (!isTrainingRef.current || registeredPods.length === 0) return;
+    if (!isTrainingRef.current) return;
+    const pods = registeredPodsRef.current;
+    if (pods.length === 0) return;
 
     let nextPodNum: number;
-    if (podsMode === 'random' && registeredPods.length > 1) {
-      const available = registeredPods.filter((p) => p !== activePodRef.current);
+    if (podsModeRef.current === 'random' && pods.length > 1) {
+      const available = pods.filter((p) => p !== activePodRef.current);
       nextPodNum = available[Math.floor(Math.random() * available.length)];
     } else {
-      nextPodNum = registeredPods[podSequenceIndexRef.current % registeredPods.length];
+      // Sequential: cycle through pods
+      nextPodNum = pods[podSequenceIndexRef.current % pods.length];
       podSequenceIndexRef.current++;
     }
 
     setActivePod(nextPodNum);
-    // Send command TO the specific pod
     const cmd = POD_CMD[nextPodNum];
     if (cmd) bleWriteToPod(nextPodNum, cmd);
   }
@@ -360,13 +368,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     bleWriteToPod(podNum, CMD.POD_ALL_OFF);
     setActivePod(null);
 
-    // Wait timeInterval, then launch ball, then immediately light next pod
+    // Wait EXACT timeInterval (from ref, not stale closure), then launch + next pod
+    const intervalMs = timeIntervalRef.current * 1000;
     addTimer(() => {
       bleWrite(CMD.LAUNCH);
       setLaunchCount((prev) => prev + 1);
-      // Immediately light next pod after launching
       lightNextPod();
-    }, timeInterval * 1000);
+    }, intervalMs);
   }
 
   // ========== COMMANDS ==========
@@ -466,7 +474,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             bleWrite(CMD.LAUNCH);
             setLaunchCount((prev) => prev + 1);
           }
-        }, timeInterval * 1000);
+        }, timeIntervalRef.current * 1000);
       }, 5000);
     } else {
       // With pods: light first pod after 7 seconds
