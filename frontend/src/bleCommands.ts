@@ -2,7 +2,7 @@
 // Uses react-native-ble-plx for real Bluetooth on native builds
 // Falls back to console.log mock on web/Expo Go
 
-import { Platform } from 'react-native';
+import { Platform, PermissionsAndroid } from 'react-native';
 
 let BleManager: any = null;
 let bleManagerInstance: any = null;
@@ -62,11 +62,69 @@ export function setOnDataReceived(callback: ((data: string) => void) | null) {
   onDataReceived = callback;
 }
 
-// Scan for JDY devices
+// Request Android BLE permissions
+async function requestBlePermissions(): Promise<boolean> {
+  if (Platform.OS !== 'android') return true;
+
+  try {
+    // Android 12+ (API 31+) needs BLUETOOTH_SCAN, BLUETOOTH_CONNECT
+    if (Platform.Version >= 31) {
+      const results = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      ]);
+      const allGranted = Object.values(results).every(
+        (r) => r === PermissionsAndroid.RESULTS.GRANTED
+      );
+      console.log('[BLE] Permissions Android 12+:', allGranted, results);
+      return allGranted;
+    } else {
+      // Android < 12 needs ACCESS_FINE_LOCATION
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        {
+          title: 'Bluetooth Permission',
+          message: 'This app needs location access to scan for Bluetooth devices',
+          buttonPositive: 'OK',
+        }
+      );
+      console.log('[BLE] Permission location:', granted);
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    }
+  } catch (e) {
+    console.error('[BLE] Permission error:', e);
+    return false;
+  }
+}
+
+// Wait for BLE to be powered on
+async function waitForBlePoweredOn(): Promise<boolean> {
+  const manager = getBleManager();
+  if (!manager) return false;
+
+  return new Promise((resolve) => {
+    const sub = manager.onStateChange((state: string) => {
+      console.log('[BLE] State:', state);
+      if (state === 'PoweredOn') {
+        sub.remove();
+        resolve(true);
+      }
+    }, true);
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      sub.remove();
+      resolve(false);
+    }, 5000);
+  });
+}
+
+// Scan for BLE devices - shows ALL devices, not just JDY
 export async function scanForDevices(
   onDeviceFound: (device: { id: string; name: string; mac_address: string; rssi: number }) => void,
   onScanComplete: () => void,
-  timeoutMs: number = 5000
+  timeoutMs: number = 8000
 ): Promise<void> {
   const manager = getBleManager();
   if (!manager) {
@@ -82,30 +140,52 @@ export async function scanForDevices(
     return;
   }
 
-  // Real BLE scan
+  // 1. Request permissions
+  const hasPermission = await requestBlePermissions();
+  if (!hasPermission) {
+    console.error('[BLE] Permissions not granted');
+    onScanComplete();
+    return;
+  }
+
+  // 2. Wait for BLE to be powered on
+  const powered = await waitForBlePoweredOn();
+  if (!powered) {
+    console.error('[BLE] Bluetooth not powered on');
+    onScanComplete();
+    return;
+  }
+
+  // 3. Start scanning - show ALL devices found
+  console.log('[BLE] Starting scan...');
   const seen = new Set<string>();
+
   manager.startDeviceScan(null, { allowDuplicates: false }, (error: any, device: any) => {
     if (error) {
-      console.error('[BLE] Scan error:', error);
+      console.error('[BLE] Scan error:', error.message || error);
       return;
     }
-    if (!device || !device.name) return;
-    // Filter for JDY devices
-    const name = device.name || '';
-    if (name.startsWith('JDY') && !seen.has(device.id)) {
-      seen.add(device.id);
-      onDeviceFound({
-        id: device.id,
-        name: name,
-        mac_address: device.id, // On Android, device.id IS the MAC address
-        rssi: device.rssi || -100,
-      });
-    }
+    if (!device) return;
+
+    // Use name or localName, skip devices with no name at all
+    const deviceName = device.name || device.localName || '';
+    if (!deviceName || seen.has(device.id)) return;
+
+    seen.add(device.id);
+    console.log(`[BLE] Found: ${deviceName} (${device.id}) RSSI:${device.rssi}`);
+
+    onDeviceFound({
+      id: device.id,
+      name: deviceName,
+      mac_address: device.id, // On Android, device.id IS the MAC address
+      rssi: device.rssi || -100,
+    });
   });
 
   // Stop scan after timeout
   setTimeout(() => {
     manager.stopDeviceScan();
+    console.log(`[BLE] Scan complete. Found ${seen.size} devices`);
     onScanComplete();
   }, timeoutMs);
 }
@@ -119,49 +199,68 @@ export async function connectToDevice(deviceId: string): Promise<boolean> {
   }
 
   try {
-    const device = await manager.connectToDevice(deviceId);
+    console.log(`[BLE] Connecting to ${deviceId}...`);
+    const device = await manager.connectToDevice(deviceId, { timeout: 10000 });
     await device.discoverAllServicesAndCharacteristics();
     connectedDevice = device;
+    console.log(`[BLE] Connected to ${deviceId}`);
 
     // Find the UART/serial characteristic for JDY modules
-    // JDY-32/23/08 typically use FFE0 service, FFE1 characteristic
+    // JDY-32/23/08 use service FFE0, characteristic FFE1
     const services = await device.services();
     for (const service of services) {
+      const serviceUUID = service.uuid.toLowerCase();
       const chars = await service.characteristics();
+
       for (const char of chars) {
-        if (char.isWritableWithoutResponse || char.isWritableWithResponse) {
-          writeCharacteristic = char;
-          console.log(`[BLE] Write characteristic found: ${char.uuid}`);
+        const charUUID = char.uuid.toLowerCase();
+        console.log(`[BLE] Service: ${serviceUUID} Char: ${charUUID} W:${char.isWritableWithoutResponse} WR:${char.isWritableWithResponse} N:${char.isNotifiable}`);
+
+        // Prefer FFE1 characteristic (standard for JDY modules)
+        if (charUUID.includes('ffe1') || char.isWritableWithoutResponse || char.isWritableWithResponse) {
+          if (!writeCharacteristic) {
+            writeCharacteristic = char;
+            console.log(`[BLE] Write char: ${charUUID}`);
+          }
         }
+
         if (char.isNotifiable) {
           // Subscribe to notifications (for pod responses like "05")
           notifySubscription = char.monitor((error: any, characteristic: any) => {
             if (error) {
-              console.error('[BLE] Notify error:', error);
+              console.error('[BLE] Notify error:', error.message || error);
               return;
             }
             if (characteristic?.value) {
               // Decode base64 value
-              const decoded = atob(characteristic.value);
-              console.log(`[BLE] Received: ${decoded}`);
-              if (onDataReceived) onDataReceived(decoded);
+              try {
+                const decoded = atob(characteristic.value);
+                console.log(`[BLE] Received: "${decoded}"`);
+                if (onDataReceived) onDataReceived(decoded);
+              } catch (e) {
+                console.error('[BLE] Decode error:', e);
+              }
             }
           });
-          console.log(`[BLE] Notify characteristic found: ${char.uuid}`);
+          console.log(`[BLE] Notify char: ${charUUID}`);
         }
       }
     }
 
     // Monitor disconnection
     device.onDisconnected((error: any, disconnectedDevice: any) => {
-      console.log(`[BLE] Device disconnected: ${disconnectedDevice?.id}`);
+      console.log(`[BLE] Disconnected: ${disconnectedDevice?.id}`);
       connectedDevice = null;
       writeCharacteristic = null;
+      if (notifySubscription) {
+        notifySubscription.remove();
+        notifySubscription = null;
+      }
     });
 
     return true;
-  } catch (error) {
-    console.error(`[BLE] Connect error:`, error);
+  } catch (error: any) {
+    console.error(`[BLE] Connect error:`, error.message || error);
     return false;
   }
 }
@@ -172,7 +271,7 @@ export async function bleWrite(command: string): Promise<void> {
   console.log(`[BLE] Send: ${JSON.stringify(codes)}`);
 
   if (!IS_BLE_AVAILABLE || !writeCharacteristic) {
-    // Mock mode - just log
+    // Mock mode or not connected - just log
     return;
   }
 
@@ -184,8 +283,8 @@ export async function bleWrite(command: string): Promise<void> {
     } else {
       await writeCharacteristic.writeWithResponse(base64);
     }
-  } catch (error) {
-    console.error('[BLE] Write error:', error);
+  } catch (error: any) {
+    console.error('[BLE] Write error:', error.message || error);
   }
 }
 
@@ -204,18 +303,6 @@ export async function disconnectDevice(): Promise<void> {
     connectedDevice = null;
     writeCharacteristic = null;
   }
-}
-
-// Check if BLE is powered on
-export async function checkBleState(): Promise<string> {
-  const manager = getBleManager();
-  if (!manager) return 'Mock';
-  return new Promise((resolve) => {
-    const sub = manager.onStateChange((state: string) => {
-      sub.remove();
-      resolve(state);
-    }, true);
-  });
 }
 
 export function delay(ms: number): Promise<void> {
