@@ -156,7 +156,7 @@ export async function scanForDevices(
     return;
   }
 
-  // 3. Start scanning - show ALL devices found
+  // 3. Start scanning - only show JDY devices (JDY-23, JDY-08, JDY-32)
   console.log('[BLE] Starting scan...');
   const seen = new Set<string>();
 
@@ -167,9 +167,13 @@ export async function scanForDevices(
     }
     if (!device) return;
 
-    // Use name or localName, skip devices with no name at all
+    // Use name or localName
     const deviceName = device.name || device.localName || '';
     if (!deviceName || seen.has(device.id)) return;
+
+    // Only show JDY devices
+    const upperName = deviceName.toUpperCase();
+    if (!upperName.includes('JDY')) return;
 
     seen.add(device.id);
     console.log(`[BLE] Found: ${deviceName} (${device.id}) RSSI:${device.rssi}`);

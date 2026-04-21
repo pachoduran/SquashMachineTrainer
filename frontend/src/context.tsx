@@ -292,9 +292,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  // Register device and try to connect
+  // Register device - save to DB first, then try BLE connect in background
   async function registerDeviceAndConnect(discovered: DiscoveredDevice, role: string) {
+    // 1. Save to backend DB first (this is what matters)
     try {
+      console.log(`[REG] Saving ${discovered.name} as ${role}...`);
       const res = await fetch(`${API_BASE}/api/devices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -305,14 +307,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }),
       });
       if (res.ok) {
-        // Try to connect via BLE
-        if (IS_BLE_AVAILABLE) {
-          await connectToDevice(discovered.mac_address);
-        }
+        console.log(`[REG] Saved successfully`);
         await fetchDevices();
+      } else {
+        console.error(`[REG] Server error: ${res.status}`);
       }
-    } catch (e) {
-      console.error('Failed to register device:', e);
+    } catch (e: any) {
+      console.error('[REG] Network error:', e.message || e);
+    }
+
+    // 2. Try BLE connect in background (don't block registration)
+    if (IS_BLE_AVAILABLE) {
+      connectToDevice(discovered.mac_address).catch((e: any) => {
+        console.error('[REG] BLE connect failed (non-blocking):', e.message || e);
+      });
     }
   }
 
