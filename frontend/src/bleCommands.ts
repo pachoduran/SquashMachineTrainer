@@ -29,6 +29,35 @@ export const CMD = {
   POD_YELLOW_ON: 'D',  // Pod 3 = Yellow
   POD_ALL_OFF: 'H',    // Turn off pod
   POD_TOUCHED: '05',   // Response from pod when touched
+  // Pro machine commands
+  HEAD_UP: 'R',
+  HEAD_DOWN: 'Q',
+  HEAD_LEFT: 'P',
+  HEAD_RIGHT: 'O',
+  LASER_ON: 'M',
+  LASER_OFF: 'N',
+  REGISTER_POINT_1: String.fromCharCode(23),  // chr(23)
+  REGISTER_POINT_2: String.fromCharCode(24),  // chr(24)
+  REGISTER_POINT_3: String.fromCharCode(25),  // chr(25)
+  REGISTER_POINT_4: String.fromCharCode(26),  // chr(26)
+  GOTO_POINT_1: String.fromCharCode(27),      // chr(27)
+  GOTO_POINT_2: String.fromCharCode(28),      // chr(28)
+  GOTO_POINT_3: String.fromCharCode(29),      // chr(29)
+  GOTO_POINT_4: String.fromCharCode(30),      // chr(30)
+};
+
+export const REGISTER_POINT_CMD: Record<number, string> = {
+  1: CMD.REGISTER_POINT_1,
+  2: CMD.REGISTER_POINT_2,
+  3: CMD.REGISTER_POINT_3,
+  4: CMD.REGISTER_POINT_4,
+};
+
+export const GOTO_POINT_CMD: Record<number, string> = {
+  1: CMD.GOTO_POINT_1,
+  2: CMD.GOTO_POINT_2,
+  3: CMD.GOTO_POINT_3,
+  4: CMD.GOTO_POINT_4,
 };
 
 export const POD_CMD: Record<number, string> = {

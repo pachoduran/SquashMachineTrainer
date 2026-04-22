@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Squash Machine Trainer Lite",
-    "slug": "squash-machine-trainer-lite",
+    "name": "Squash Machine Trainer",
+    "slug": "squash-machine-trainer",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

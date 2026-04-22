@@ -3,68 +3,50 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { translations, Language } from './i18n';
 import {
-  CMD, POD_CMD, calculateSpeedValue,
-  bleWrite, bleWriteToPod, bleWriteToAllPods,
+  CMD, POD_CMD, REGISTER_POINT_CMD, GOTO_POINT_CMD,
+  calculateSpeedValue, bleWrite, bleWriteToPod, bleWriteToAllPods,
   delay, scanForDevices, connectToDevice,
   IS_BLE_AVAILABLE, setOnDataReceived, setDeviceRoles, isDeviceConnected,
   setOnDeviceDisconnected, checkDeviceConnection, reconnectDevice,
 } from './bleCommands';
 
-export interface Device {
-  id: string;
-  mac_address: string;
-  name: string;
-  role: string;
-  created_at: string;
-}
-
-export interface DiscoveredDevice {
-  id: string;
-  name: string;
-  mac_address: string;
-  rssi: number;
-}
-
+export interface Device { id: string; mac_address: string; name: string; role: string; created_at: string; }
+export interface DiscoveredDevice { id: string; name: string; mac_address: string; rssi: number; }
 export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
+export type MachineType = 'lite' | 'pro';
+export type ShotMode = 'fixed' | 'sequential' | 'random';
 
 interface AppContextType {
-  language: Language;
-  setLanguage: (lang: Language) => void;
-  t: (key: string) => string;
+  language: Language; setLanguage: (l: Language) => void; t: (k: string) => string;
+  machineType: MachineType; setMachineType: (t: MachineType) => void;
   devices: Device[];
-  registerDevice: (discovered: DiscoveredDevice, role: string) => Promise<void>;
+  registerDevice: (d: DiscoveredDevice, role: string) => Promise<void>;
   removeDevice: (id: string) => Promise<void>;
   connectionStatus: Record<string, ConnectionState>;
-  isScanning: boolean;
-  discoveredDevices: DiscoveredDevice[];
-  startScan: () => void;
-  podsMode: string;
-  setPodsMode: (mode: string) => void;
-  timeInterval: number;
-  setTimeInterval: (t: number) => void;
-  speed: number;
-  setSpeed: (s: number) => void;
-  vibrator: boolean;
-  toggleVibrator: () => void;
-  podsEnabled: boolean;
-  togglePods: () => void;
-  heater: boolean;
-  toggleHeater: () => void;
-  sendSpeedCommand: () => void;
-  sendLaunchCommand: () => void;
-  sendInitCommand: () => void;
-  podCount: number;
-  hasMachine: boolean;
-  launchCount: number;
-  totalLaunchCount: number;
-  isTraining: boolean;
-  isMotorRunning: boolean;
-  activePod: number | null;
-  resetLaunchCount: () => void;
+  isScanning: boolean; discoveredDevices: DiscoveredDevice[]; startScan: () => void;
+  podsMode: string; setPodsMode: (m: string) => void;
+  timeInterval: number; setTimeInterval: (t: number) => void;
+  speed: number; setSpeed: (s: number) => void;
+  vibrator: boolean; toggleVibrator: () => void;
+  podsEnabled: boolean; togglePods: () => void;
+  heater: boolean; toggleHeater: () => void;
+  sendSpeedCommand: () => void; sendLaunchCommand: () => void; sendInitCommand: () => void;
+  podCount: number; hasMachine: boolean;
+  launchCount: number; totalLaunchCount: number;
+  isTraining: boolean; isMotorRunning: boolean;
+  activePod: number | null; resetLaunchCount: () => void;
+  // Pro features
+  laserOn: boolean; toggleLaser: () => void;
+  moveHead: (dir: 'up' | 'down' | 'left' | 'right') => void;
+  programmedShots: boolean[]; registerShot: (point: number) => void;
+  goToShot: (point: number) => void; resetShots: () => void;
+  shotMode: ShotMode; setShotMode: (m: ShotMode) => void;
+  configuredShotCount: number;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 const STORAGE_KEY = '@smt_devices';
+const MACHINE_TYPE_KEY = '@smt_machine_type';
 
 export function useApp() {
   const ctx = useContext(AppContext);
@@ -74,6 +56,7 @@ export function useApp() {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>('en');
+  const [machineType, setMachineTypeState] = useState<MachineType>('lite');
   const [devices, setDevices] = useState<Device[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<Record<string, ConnectionState>>({});
   const [isScanning, setIsScanning] = useState(false);
@@ -89,511 +72,334 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [totalLaunchCount, setTotalLaunchCount] = useState(0);
   const [isTraining, setIsTraining] = useState(false);
   const [activePod, setActivePod] = useState<number | null>(null);
+  // Pro state
+  const [laserOn, setLaserOn] = useState(false);
+  const [programmedShots, setProgrammedShots] = useState<boolean[]>([false, false, false, false]);
+  const [shotMode, setShotModeState] = useState<ShotMode>('fixed');
 
   const trainingTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const autoLaunchRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const podSequenceIndexRef = useRef(0);
+  const shotSequenceIndexRef = useRef(0);
   const isTrainingRef = useRef(false);
   const activePodRef = useRef<number | null>(null);
   const macByRoleRef = useRef<Record<string, string>>({});
   const timeIntervalRef = useRef(2.5);
   const registeredPodsRef = useRef<number[]>([]);
   const podsModeRef = useRef('disabled');
+  const shotModeRef = useRef<ShotMode>('fixed');
+  const programmedShotsRef = useRef<boolean[]>([false, false, false, false]);
+  const machineTypeRef = useRef<MachineType>('lite');
+  const devicesRef = useRef<Device[]>([]);
 
-  const t = useCallback(
-    (key: string) => translations[language][key] || key,
-    [language]
-  );
+  const t = useCallback((key: string) => translations[language][key] || key, [language]);
 
-  const registeredPods = devices
-    .filter((d) => d.role.startsWith('pod'))
-    .map((d) => parseInt(d.role.replace('pod', ''), 10))
-    .sort();
+  const registeredPods = devices.filter((d) => d.role.startsWith('pod')).map((d) => parseInt(d.role.replace('pod', ''), 10)).sort();
   const podCount = registeredPods.length;
   const hasMachine = devices.some((d) => d.role === 'machine');
+  const configuredShotCount = programmedShots.filter(Boolean).length;
+  const configuredShotIndices = programmedShots.map((v, i) => v ? i + 1 : -1).filter((v) => v > 0);
 
+  // Keep refs synced
   useEffect(() => { isTrainingRef.current = isTraining; }, [isTraining]);
   useEffect(() => { activePodRef.current = activePod; }, [activePod]);
   useEffect(() => { timeIntervalRef.current = timeInterval; }, [timeInterval]);
   useEffect(() => { registeredPodsRef.current = registeredPods; }, [registeredPods.join(',')]);
   useEffect(() => { podsModeRef.current = podsMode; }, [podsMode]);
+  useEffect(() => { shotModeRef.current = shotMode; }, [shotMode]);
+  useEffect(() => { programmedShotsRef.current = programmedShots; }, [programmedShots]);
+  useEffect(() => { machineTypeRef.current = machineType; }, [machineType]);
+  useEffect(() => { devicesRef.current = devices; }, [devices]);
 
-  // Update BLE role-to-MAC mapping when devices change
+  // Role-to-MAC mapping
   useEffect(() => {
     const roles: Record<string, string> = {};
-    devices.forEach((d) => {
-      if (d.role !== 'unassigned') {
-        roles[d.role] = d.mac_address;
-      }
-    });
+    devices.forEach((d) => { if (d.role !== 'unassigned') roles[d.role] = d.mac_address; });
     setDeviceRoles(roles);
     macByRoleRef.current = roles;
   }, [devices]);
 
-  // ========== LOCAL STORAGE ==========
-
+  // ========== STORAGE ==========
   async function loadDevices() {
     try {
       const json = await AsyncStorage.getItem(STORAGE_KEY);
-      if (json) {
-        const saved = JSON.parse(json);
-        setDevices(saved);
-        console.log(`[STORAGE] Loaded ${saved.length} devices`);
-        return saved as Device[];
-      }
-    } catch (e) {
-      console.error('[STORAGE] Load error:', e);
-    }
+      if (json) { const saved = JSON.parse(json); setDevices(saved); return saved as Device[]; }
+    } catch (e) { console.error('[STORAGE] Load error:', e); }
     return [];
   }
-
-  async function saveDevices(newDevices: Device[]) {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newDevices));
-      setDevices(newDevices);
-      console.log(`[STORAGE] Saved ${newDevices.length} devices`);
-    } catch (e) {
-      console.error('[STORAGE] Save error:', e);
-    }
+  async function saveDevices(nd: Device[]) {
+    try { await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(nd)); setDevices(nd); } catch (e) { console.error('[STORAGE] Save error:', e); }
+  }
+  async function loadMachineType() {
+    try { const v = await AsyncStorage.getItem(MACHINE_TYPE_KEY); if (v === 'pro' || v === 'lite') { setMachineTypeState(v); machineTypeRef.current = v; } } catch (e) {}
+  }
+  function setMachineType(t: MachineType) {
+    setMachineTypeState(t); machineTypeRef.current = t;
+    AsyncStorage.setItem(MACHINE_TYPE_KEY, t).catch(() => {});
   }
 
-  // Load devices + setup BLE + auto-connect + monitor connections
+  // ========== INIT + BLE MONITORING ==========
   useEffect(() => {
-    loadDevices().then((saved) => {
-      if (IS_BLE_AVAILABLE && saved.length > 0) {
-        autoConnectAll(saved);
-      }
-    });
+    loadMachineType();
+    loadDevices().then((saved) => { if (IS_BLE_AVAILABLE && saved.length > 0) autoConnectAll(saved); });
 
-    // Listen for data from ANY device (pods send "0" then "5" separately)
     setOnDataReceived((data: string, fromMac: string) => {
-      console.log(`[CTX] Data received: "${data}" from ${fromMac}`);
       if (data.includes('05') && isTrainingRef.current) {
         const current = activePodRef.current;
         if (current) {
           const expectedMac = macByRoleRef.current[`pod${current}`];
-          if (!expectedMac || fromMac === expectedMac) {
-            console.log(`[CTX] Pod ${current} touched! Launching after timeInterval`);
-            handlePodResponse(current);
-          }
+          if (!expectedMac || fromMac === expectedMac) handlePodResponse(current);
         }
       }
     });
 
-    // Listen for BLE disconnections → update status + try reconnect
     setOnDeviceDisconnected((mac: string) => {
-      console.log(`[CTX] Device disconnected: ${mac}`);
-      // Find which device disconnected and update status
       setConnectionStatus((prev) => {
         const updated = { ...prev };
-        // Find device by MAC
-        for (const dev of devicesRef.current) {
-          if (dev.mac_address === mac) {
-            updated[dev.id] = 'disconnected';
-          }
-        }
+        for (const dev of devicesRef.current) { if (dev.mac_address === mac) updated[dev.id] = 'disconnected'; }
         return updated;
       });
-
-      // Auto-reconnect after 3 seconds
       setTimeout(() => {
         const dev = devicesRef.current.find((d) => d.mac_address === mac);
         if (dev && dev.role !== 'unassigned') {
-          console.log(`[CTX] Auto-reconnecting to ${dev.name}...`);
           setConnectionStatus((prev) => ({ ...prev, [dev.id]: 'connecting' }));
           reconnectDevice(mac).then((ok) => {
-            setConnectionStatus((prev) => ({
-              ...prev,
-              [dev.id]: ok ? 'connected' : 'disconnected',
-            }));
-            if (!ok) {
-              // Retry again in 5 seconds
-              scheduleReconnect(mac, dev.id);
-            }
+            setConnectionStatus((prev) => ({ ...prev, [dev.id]: ok ? 'connected' : 'disconnected' }));
+            if (!ok) setTimeout(() => {
+              reconnectDevice(mac).then((ok2) => { setConnectionStatus((p) => ({ ...p, [dev.id]: ok2 ? 'connected' : 'disconnected' })); });
+            }, 5000);
           });
         }
       }, 3000);
     });
 
-    // Periodic connection check every 10 seconds
     let checkInterval: ReturnType<typeof setInterval> | null = null;
     if (IS_BLE_AVAILABLE) {
       checkInterval = setInterval(() => {
-        checkAllConnections();
+        for (const dev of devicesRef.current) {
+          if (dev.role === 'unassigned') continue;
+          checkDeviceConnection(dev.mac_address).then((ok) => {
+            setConnectionStatus((prev) => {
+              if (ok && prev[dev.id] !== 'connected') return { ...prev, [dev.id]: 'connected' };
+              if (!ok && prev[dev.id] === 'connected') {
+                reconnectDevice(dev.mac_address).then((r) => { setConnectionStatus((p) => ({ ...p, [dev.id]: r ? 'connected' : 'disconnected' })); });
+                return { ...prev, [dev.id]: 'connecting' };
+              }
+              return prev;
+            });
+          });
+        }
       }, 10000);
     }
-
-    return () => {
-      setOnDataReceived(null);
-      setOnDeviceDisconnected(null);
-      if (checkInterval) clearInterval(checkInterval);
-    };
+    return () => { setOnDataReceived(null); setOnDeviceDisconnected(null); if (checkInterval) clearInterval(checkInterval); };
   }, []);
 
-  const devicesRef = useRef<Device[]>([]);
-  useEffect(() => { devicesRef.current = devices; }, [devices]);
-
-  function scheduleReconnect(mac: string, devId: string) {
-    setTimeout(() => {
-      const dev = devicesRef.current.find((d) => d.mac_address === mac);
-      if (!dev || dev.role === 'unassigned') return;
-      console.log(`[CTX] Retry reconnect to ${mac}...`);
-      setConnectionStatus((prev) => ({ ...prev, [devId]: 'connecting' }));
-      reconnectDevice(mac).then((ok) => {
-        setConnectionStatus((prev) => ({
-          ...prev,
-          [devId]: ok ? 'connected' : 'disconnected',
-        }));
-      });
-    }, 5000);
-  }
-
-  // Check connection status of all registered devices
-  async function checkAllConnections() {
-    for (const dev of devicesRef.current) {
+  async function autoConnectAll(list: Device[]) {
+    for (const dev of list) {
       if (dev.role === 'unassigned') continue;
-      const connected = await checkDeviceConnection(dev.mac_address);
-      setConnectionStatus((prev) => {
-        const currentStatus = prev[dev.id];
-        if (connected && currentStatus !== 'connected') {
-          return { ...prev, [dev.id]: 'connected' };
-        }
-        if (!connected && currentStatus === 'connected') {
-          // Lost connection - try reconnect
-          console.log(`[CTX] Lost connection to ${dev.name}, reconnecting...`);
-          reconnectDevice(dev.mac_address).then((ok) => {
-            setConnectionStatus((p) => ({
-              ...p,
-              [dev.id]: ok ? 'connected' : 'disconnected',
-            }));
-          });
-          return { ...prev, [dev.id]: 'connecting' };
-        }
-        return prev;
-      });
+      setConnectionStatus((p) => ({ ...p, [dev.id]: 'connecting' }));
+      connectToDevice(dev.mac_address).then((ok) => { setConnectionStatus((p) => ({ ...p, [dev.id]: ok ? 'connected' : 'disconnected' })); });
     }
   }
 
-  // Auto-connect to ALL registered devices (machine + pods)
-  async function autoConnectAll(deviceList: Device[]) {
-    for (const dev of deviceList) {
-      if (dev.role === 'unassigned') continue;
-      console.log(`[BLE] Auto-connecting ${dev.role}: ${dev.mac_address}`);
-      setConnectionStatus((prev) => ({ ...prev, [dev.id]: 'connecting' }));
-
-      connectToDevice(dev.mac_address).then((ok) => {
-        setConnectionStatus((prev) => ({
-          ...prev,
-          [dev.id]: ok ? 'connected' : 'disconnected',
-        }));
-      });
-    }
-  }
-
-  // Update connection status when devices change (for non-BLE / mock mode)
+  // Mock connection for web
   useEffect(() => {
     if (!IS_BLE_AVAILABLE && devices.length > 0) {
-      const status: Record<string, ConnectionState> = {};
-      devices.forEach((d) => { status[d.id] = 'connecting'; });
-      setConnectionStatus(status);
-      const timer = setTimeout(() => {
-        const connected: Record<string, ConnectionState> = {};
-        devices.forEach((d) => { connected[d.id] = 'connected'; });
-        setConnectionStatus(connected);
-      }, 1500);
-      return () => clearTimeout(timer);
+      const s: Record<string, ConnectionState> = {}; devices.forEach((d) => { s[d.id] = 'connecting'; }); setConnectionStatus(s);
+      const t = setTimeout(() => { const c: Record<string, ConnectionState> = {}; devices.forEach((d) => { c[d.id] = 'connected'; }); setConnectionStatus(c); }, 1500);
+      return () => clearTimeout(t);
     }
   }, [devices]);
 
-  // Auto-adjust time interval when pods mode changes
-  useEffect(() => {
-    if (podsMode === 'disabled') {
-      setTimeIntervalState(2.5);
-    } else {
-      setTimeIntervalState(1.0);
-    }
-  }, [podsMode]);
-
-  function setTimeInterval(val: number) {
-    setTimeIntervalState(val);
-  }
+  // Auto-adjust time + pods mode
+  useEffect(() => { setTimeIntervalState(podsMode === 'disabled' ? 2.5 : 1.0); }, [podsMode]);
   useEffect(() => {
     if (podCount === 0) setPodsModeState('disabled');
-    else if (podCount === 1) setPodsModeState('sequential');
-    else if (podsMode === 'disabled') setPodsModeState('sequential');
+    else if (podCount === 1 && podsMode !== 'disabled') setPodsModeState('sequential');
   }, [podCount]);
 
-  // Mock: simulate pod touch when active during training (only in mock mode)
+  // Mock pod touch (web only)
   useEffect(() => {
     if (!IS_BLE_AVAILABLE && activePod && isTraining) {
-      const mockDelay = 1500 + Math.random() * 2000;
-      const timer = setTimeout(() => {
-        if (isTrainingRef.current) handlePodResponse(activePod);
-      }, mockDelay);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => { if (isTrainingRef.current) handlePodResponse(activePod); }, 1500 + Math.random() * 2000);
+      return () => clearTimeout(t);
     }
   }, [activePod, isTraining]);
 
   useEffect(() => { return () => { clearAllTimers(); }; }, []);
 
-  const setPodsMode = useCallback(
-    (mode: string) => {
-      // Always allow 'disabled' (user can choose no pods even if pods registered)
-      if (mode === 'disabled') { setPodsModeState('disabled'); return; }
-      if (podCount === 0) return;
-      if (podCount === 1 && mode === 'random') return;
-      setPodsModeState(mode);
-    },
-    [podCount]
-  );
+  function setTimeInterval(v: number) { setTimeIntervalState(v); }
+  const setPodsMode = useCallback((mode: string) => {
+    if (mode === 'disabled') { setPodsModeState('disabled'); return; }
+    if (podCount === 0) return;
+    if (podCount === 1 && mode === 'random') return;
+    setPodsModeState(mode);
+  }, [podCount]);
+  function setShotMode(m: ShotMode) { setShotModeState(m); }
 
   // ========== DEVICE MANAGEMENT ==========
-
   async function registerDevice(discovered: DiscoveredDevice, role: string) {
-    console.log(`[REG] Registering ${discovered.name} as ${role}`);
     let updated = [...devices];
-
-    const existingIdx = updated.findIndex((d) => d.mac_address === discovered.mac_address);
-    if (existingIdx >= 0) {
-      updated[existingIdx] = { ...updated[existingIdx], role, name: discovered.name };
-    } else {
-      if (role !== 'unassigned') {
-        updated = updated.map((d) => d.role === role ? { ...d, role: 'unassigned' } : d);
-      }
-      updated.push({
-        id: `dev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        mac_address: discovered.mac_address,
-        name: discovered.name,
-        role,
-        created_at: new Date().toISOString(),
-      });
+    const idx = updated.findIndex((d) => d.mac_address === discovered.mac_address);
+    if (idx >= 0) { updated[idx] = { ...updated[idx], role, name: discovered.name }; }
+    else {
+      if (role !== 'unassigned') updated = updated.map((d) => d.role === role ? { ...d, role: 'unassigned' } : d);
+      updated.push({ id: `dev-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, mac_address: discovered.mac_address, name: discovered.name, role, created_at: new Date().toISOString() });
     }
-
     await saveDevices(updated);
-
-    // Connect BLE to this device (machine OR pod)
     if (IS_BLE_AVAILABLE) {
-      setConnectionStatus((prev) => {
-        const dev = updated.find((d) => d.mac_address === discovered.mac_address);
-        if (dev) return { ...prev, [dev.id]: 'connecting' };
-        return prev;
-      });
-
-      connectToDevice(discovered.mac_address).then((ok) => {
-        const dev = updated.find((d) => d.mac_address === discovered.mac_address);
-        if (dev) {
-          setConnectionStatus((prev) => ({
-            ...prev,
-            [dev.id]: ok ? 'connected' : 'disconnected',
-          }));
-        }
-      });
+      const dev = updated.find((d) => d.mac_address === discovered.mac_address);
+      if (dev) { setConnectionStatus((p) => ({ ...p, [dev.id]: 'connecting' })); connectToDevice(discovered.mac_address).then((ok) => { setConnectionStatus((p) => ({ ...p, [dev.id]: ok ? 'connected' : 'disconnected' })); }); }
     }
   }
-
-  async function removeDevice(id: string) {
-    const updated = devices.filter((d) => d.id !== id);
-    await saveDevices(updated);
-  }
-
-  // ========== SCANNING ==========
+  async function removeDevice(id: string) { await saveDevices(devices.filter((d) => d.id !== id)); }
 
   function startScan() {
-    setIsScanning(true);
-    setDiscoveredDevices([]);
+    setIsScanning(true); setDiscoveredDevices([]);
     const found: DiscoveredDevice[] = [];
-    scanForDevices(
-      (device) => {
-        if (!found.some((d) => d.mac_address === device.mac_address)) {
-          found.push(device);
-          setDiscoveredDevices([...found]);
-        }
-      },
-      () => { setIsScanning(false); },
-      8000
-    );
+    scanForDevices((d) => { if (!found.some((f) => f.mac_address === d.mac_address)) { found.push(d); setDiscoveredDevices([...found]); } }, () => { setIsScanning(false); }, 8000);
   }
 
-  // ========== TRAINING LOGIC ==========
-
+  // ========== TRAINING ==========
   function clearAllTimers() {
-    trainingTimersRef.current.forEach(clearTimeout);
-    trainingTimersRef.current = [];
-    if (autoLaunchRef.current) {
-      clearInterval(autoLaunchRef.current);
-      autoLaunchRef.current = null;
-    }
+    trainingTimersRef.current.forEach(clearTimeout); trainingTimersRef.current = [];
+    if (autoLaunchRef.current) { clearInterval(autoLaunchRef.current); autoLaunchRef.current = null; }
+  }
+  function addTimer(fn: () => void, ms: number) {
+    const t = setTimeout(() => { if (isTrainingRef.current) fn(); }, ms);
+    trainingTimersRef.current.push(t); return t;
   }
 
-  function addTimer(fn: () => void, ms: number) {
-    const timer = setTimeout(() => {
-      if (isTrainingRef.current) fn();
-    }, ms);
-    trainingTimersRef.current.push(timer);
-    return timer;
+  function getNextShotPoint(): number | null {
+    const shots = programmedShotsRef.current;
+    const indices = shots.map((v, i) => v ? i + 1 : -1).filter((v) => v > 0);
+    if (indices.length === 0) return null;
+    const mode = shotModeRef.current;
+    if (mode === 'fixed') return null;
+    if (mode === 'random' && indices.length > 1) {
+      return indices[Math.floor(Math.random() * indices.length)];
+    }
+    const pt = indices[shotSequenceIndexRef.current % indices.length];
+    shotSequenceIndexRef.current++;
+    return pt;
   }
 
   function lightNextPod() {
     if (!isTrainingRef.current) return;
     const pods = registeredPodsRef.current;
     if (pods.length === 0) return;
-
-    let nextPodNum: number;
+    let next: number;
     if (podsModeRef.current === 'random' && pods.length > 1) {
-      const available = pods.filter((p) => p !== activePodRef.current);
-      nextPodNum = available[Math.floor(Math.random() * available.length)];
+      const avail = pods.filter((p) => p !== activePodRef.current);
+      next = avail[Math.floor(Math.random() * avail.length)];
     } else {
-      // Sequential: cycle through pods
-      nextPodNum = pods[podSequenceIndexRef.current % pods.length];
+      next = pods[podSequenceIndexRef.current % pods.length];
       podSequenceIndexRef.current++;
     }
+    setActivePod(next);
+    const cmd = POD_CMD[next];
+    if (cmd) bleWriteToPod(next, cmd);
+  }
 
-    setActivePod(nextPodNum);
-    const cmd = POD_CMD[nextPodNum];
-    if (cmd) bleWriteToPod(nextPodNum, cmd);
+  function moveToNextShot() {
+    if (machineTypeRef.current !== 'pro') return;
+    const pt = getNextShotPoint();
+    if (pt) {
+      const cmd = GOTO_POINT_CMD[pt];
+      if (cmd) bleWrite(cmd);
+    }
   }
 
   function handlePodResponse(podNum: number) {
     if (!isTrainingRef.current) return;
-    // Turn off the pod that was touched
     bleWriteToPod(podNum, CMD.POD_ALL_OFF);
     setActivePod(null);
-
-    // Wait EXACT timeInterval (from ref, not stale closure), then launch + next pod
-    const intervalMs = timeIntervalRef.current * 1000;
+    const ms = timeIntervalRef.current * 1000;
     addTimer(() => {
       bleWrite(CMD.LAUNCH);
-      setLaunchCount((prev) => prev + 1);
-      setTotalLaunchCount((prev) => prev + 1);
+      setLaunchCount((p) => p + 1);
+      setTotalLaunchCount((p) => p + 1);
+      moveToNextShot(); // Pro: move to next position after launch
       lightNextPod();
-    }, intervalMs);
+    }, ms);
   }
 
   // ========== COMMANDS ==========
-
-  // Vibrator: sent to MACHINE
-  function toggleVibrator() {
-    const next = !vibrator;
-    setVibrator(next);
-    bleWrite(next ? CMD.VIBRATOR_ON : CMD.VIBRATOR_OFF);
-  }
-
-  // Pods on/off: sent to EACH POD
+  function toggleVibrator() { const n = !vibrator; setVibrator(n); bleWrite(n ? CMD.VIBRATOR_ON : CMD.VIBRATOR_OFF); }
   function togglePods() {
-    const next = !podsEnabled;
-    setPodsEnabled(next);
-    if (next) {
-      // Turn on each registered pod with its color
-      registeredPods.forEach((p) => {
-        const cmd = POD_CMD[p];
-        if (cmd) bleWriteToPod(p, cmd);
-      });
-    } else {
-      // Turn off all pods
-      bleWriteToAllPods(CMD.POD_ALL_OFF);
-    }
+    const n = !podsEnabled; setPodsEnabled(n);
+    if (n) { registeredPods.forEach((p) => { const c = POD_CMD[p]; if (c) bleWriteToPod(p, c); }); }
+    else { bleWriteToAllPods(CMD.POD_ALL_OFF); }
   }
-
-  // Heater: sent to MACHINE
-  function toggleHeater() {
-    const next = !heater;
-    setHeater(next);
-    bleWrite(next ? CMD.HEATER_ON : CMD.HEATER_OFF);
+  function toggleHeater() { const n = !heater; setHeater(n); bleWrite(n ? CMD.HEATER_ON : CMD.HEATER_OFF); }
+  function toggleLaser() { const n = !laserOn; setLaserOn(n); bleWrite(n ? CMD.LASER_ON : CMD.LASER_OFF); }
+  function moveHead(dir: 'up' | 'down' | 'left' | 'right') {
+    const cmds = { up: CMD.HEAD_UP, down: CMD.HEAD_DOWN, left: CMD.HEAD_LEFT, right: CMD.HEAD_RIGHT };
+    bleWrite(cmds[dir]);
   }
+  function registerShot(point: number) {
+    const cmd = REGISTER_POINT_CMD[point];
+    if (cmd) { bleWrite(cmd); const ns = [...programmedShots]; ns[point - 1] = true; setProgrammedShots(ns); }
+  }
+  function goToShot(point: number) { const cmd = GOTO_POINT_CMD[point]; if (cmd) bleWrite(cmd); }
+  function resetShots() { setProgrammedShots([false, false, false, false]); shotSequenceIndexRef.current = 0; }
 
-  // Speed: sent to MACHINE
   async function sendSpeedCommand() {
-    if (isMotorRunning) {
-      setIsMotorRunning(false);
-      bleWrite(CMD.MOTOR_STOP);
-    } else {
-      setIsMotorRunning(true);
-      bleWrite(CMD.MOTOR_START);
-      await delay(200);
-      bleWrite(calculateSpeedValue(speed));
-    }
+    if (isMotorRunning) { setIsMotorRunning(false); bleWrite(CMD.MOTOR_STOP); }
+    else { setIsMotorRunning(true); bleWrite(CMD.MOTOR_START); await delay(200); bleWrite(calculateSpeedValue(speed)); }
   }
+  function sendLaunchCommand() { bleWrite(CMD.LAUNCH); setLaunchCount((p) => p + 1); setTotalLaunchCount((p) => p + 1); }
 
-  // Launch: sent to MACHINE (manual launch also counts)
-  function sendLaunchCommand() {
-    bleWrite(CMD.LAUNCH);
-    setLaunchCount((prev) => prev + 1);
-    setTotalLaunchCount((prev) => prev + 1);
-  }
-
-  // Init: vibrator + motor to MACHINE, pods to respective PODS
   async function sendInitCommand() {
     if (isTraining) {
-      // STOP everything
-      clearAllTimers();
-      setIsTraining(false);
-      setActivePod(null);
-      bleWrite(CMD.MOTOR_STOP);       // stop motor on machine
-      bleWrite(CMD.VIBRATOR_OFF);     // stop vibrator on machine
-      bleWriteToAllPods(CMD.POD_ALL_OFF); // turn off all pods
-      setIsMotorRunning(false);
-      setVibrator(false);
+      clearAllTimers(); setIsTraining(false); setActivePod(null);
+      bleWrite(CMD.MOTOR_STOP); bleWrite(CMD.VIBRATOR_OFF); bleWriteToAllPods(CMD.POD_ALL_OFF);
+      setIsMotorRunning(false); setVibrator(false);
       return;
     }
+    setIsTraining(true); setLaunchCount(0); setActivePod(null);
+    podSequenceIndexRef.current = 0; shotSequenceIndexRef.current = 0;
 
-    // START training
-    setIsTraining(true);
-    setLaunchCount(0);
-    setActivePod(null);
-    podSequenceIndexRef.current = 0;
-
-    // 1. Vibrator on (machine)
-    setVibrator(true);
-    bleWrite(CMD.VIBRATOR_ON);
-    await delay(500);
+    setVibrator(true); bleWrite(CMD.VIBRATOR_ON); await delay(500);
     if (!isTrainingRef.current) return;
-
-    // 2. Motor start (machine)
-    setIsMotorRunning(true);
-    bleWrite(CMD.MOTOR_START);
-    await delay(500);
+    setIsMotorRunning(true); bleWrite(CMD.MOTOR_START); await delay(500);
     if (!isTrainingRef.current) return;
-
-    // 3. Set speed (machine)
     bleWrite(calculateSpeedValue(speed));
 
-    if (podCount === 0 || podsMode === 'disabled') {
-      // No pods or pods disabled: auto-launch from machine
-      // First ball after 5 seconds, then every timeInterval
+    // Pro: move to first shot position
+    if (machineTypeRef.current === 'pro' && shotModeRef.current !== 'fixed' && configuredShotCount > 0) {
+      moveToNextShot();
+    }
+
+    const usePods = podsModeRef.current !== 'disabled' && registeredPodsRef.current.length > 0;
+    if (usePods) {
+      addTimer(() => { lightNextPod(); }, 7000);
+    } else {
       addTimer(() => {
-        bleWrite(CMD.LAUNCH);
-        setLaunchCount((prev) => prev + 1);
-        setTotalLaunchCount((prev) => prev + 1);
+        bleWrite(CMD.LAUNCH); setLaunchCount((p) => p + 1); setTotalLaunchCount((p) => p + 1);
         autoLaunchRef.current = setInterval(() => {
           if (isTrainingRef.current) {
-            bleWrite(CMD.LAUNCH);
-            setLaunchCount((prev) => prev + 1);
-            setTotalLaunchCount((prev) => prev + 1);
+            bleWrite(CMD.LAUNCH); setLaunchCount((p) => p + 1); setTotalLaunchCount((p) => p + 1);
+            moveToNextShot();
           }
         }, timeIntervalRef.current * 1000);
       }, 5000);
-    } else {
-      // With pods: light first pod after 7 seconds
-      addTimer(() => {
-        lightNextPod();
-      }, 7000);
     }
   }
 
   return (
-    <AppContext.Provider
-      value={{
-        language, setLanguage, t,
-        devices, registerDevice, removeDevice,
-        connectionStatus, isScanning, discoveredDevices, startScan,
-        podsMode, setPodsMode, timeInterval, setTimeInterval,
-        speed, setSpeed,
-        vibrator, toggleVibrator, podsEnabled, togglePods, heater, toggleHeater,
-        sendSpeedCommand, sendLaunchCommand, sendInitCommand,
-        podCount, hasMachine, launchCount, totalLaunchCount, isTraining, isMotorRunning,
-        activePod, resetLaunchCount: () => setLaunchCount(0),
-      }}
-    >
+    <AppContext.Provider value={{
+      language, setLanguage, t, machineType, setMachineType,
+      devices, registerDevice, removeDevice, connectionStatus, isScanning, discoveredDevices, startScan,
+      podsMode, setPodsMode, timeInterval, setTimeInterval, speed, setSpeed,
+      vibrator, toggleVibrator, podsEnabled, togglePods, heater, toggleHeater,
+      sendSpeedCommand, sendLaunchCommand, sendInitCommand,
+      podCount, hasMachine, launchCount, totalLaunchCount, isTraining, isMotorRunning,
+      activePod, resetLaunchCount: () => setLaunchCount(0),
+      laserOn, toggleLaser, moveHead,
+      programmedShots, registerShot, goToShot, resetShots,
+      shotMode, setShotMode, configuredShotCount,
+    }}>
       {children}
     </AppContext.Provider>
   );
