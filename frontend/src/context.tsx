@@ -180,16 +180,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (dev.role === 'unassigned') continue;
           checkDeviceConnection(dev.mac_address).then((ok) => {
             setConnectionStatus((prev) => {
-              if (ok && prev[dev.id] !== 'connected') return { ...prev, [dev.id]: 'connected' };
-              if (!ok && prev[dev.id] === 'connected') {
-                reconnectDevice(dev.mac_address).then((r) => { setConnectionStatus((p) => ({ ...p, [dev.id]: r ? 'connected' : 'disconnected' })); });
-                return { ...prev, [dev.id]: 'connecting' };
+              const currentStatus = prev[dev.id];
+              if (ok && currentStatus !== 'connected') {
+                return { ...prev, [dev.id]: 'connected' };
+              }
+              if (!ok && (currentStatus === 'connected' || currentStatus === 'disconnected')) {
+                // Try reconnect for ANY non-connected device (including never-connected)
+                setConnectionStatus((p) => ({ ...p, [dev.id]: 'connecting' }));
+                reconnectDevice(dev.mac_address).then((r) => {
+                  setConnectionStatus((p) => ({ ...p, [dev.id]: r ? 'connected' : 'disconnected' }));
+                });
+                return prev;
               }
               return prev;
             });
           });
         }
-      }, 10000);
+      }, 8000);
     }
     return () => { setOnDataReceived(null); setOnDeviceDisconnected(null); if (checkInterval) clearInterval(checkInterval); };
   }, []);

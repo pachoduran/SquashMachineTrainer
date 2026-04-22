@@ -385,16 +385,25 @@ export async function checkDeviceConnection(mac: string): Promise<boolean> {
   }
 }
 
-// Try to reconnect a disconnected device
+// Try to reconnect a disconnected device (scan briefly first to find it)
 export async function reconnectDevice(mac: string): Promise<boolean> {
-  console.log(`[BLE] Attempting reconnect to ${mac}...`);
-  // Clean up old connection if any
+  const manager = getBleManager();
+  if (!manager) return true; // mock
+
+  console.log(`[BLE] Reconnecting to ${mac}...`);
+
+  // Clean up old connection
   if (connections[mac]) {
-    try {
-      if (connections[mac].notifySub) connections[mac].notifySub.remove();
-    } catch (e) { /* ignore */ }
+    try { if (connections[mac].notifySub) connections[mac].notifySub.remove(); } catch (e) {}
     delete connections[mac];
   }
+
+  // Brief scan to make the device discoverable (3 seconds)
+  await new Promise<void>((resolve) => {
+    manager.startDeviceScan(null, { allowDuplicates: false }, () => {});
+    setTimeout(() => { manager.stopDeviceScan(); resolve(); }, 3000);
+  });
+
   return await connectToDevice(mac);
 }
 
