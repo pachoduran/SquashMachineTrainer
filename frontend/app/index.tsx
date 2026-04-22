@@ -83,39 +83,52 @@ function DPad() {
 
 function ShotProgramming() {
   const { t, programmedShots, registerShot, goToShot, resetShots, sendLaunchCommand } = useApp();
+  const [expanded, setExpanded] = React.useState(false);
+  const configCount = programmedShots.filter(Boolean).length;
+
   return (
-    <View style={s.section}>
-      <Text style={s.sectionLabel}>{t('shotProgram')}</Text>
-      <View style={s.shotsGrid}>
-        {[1, 2, 3, 4].map((pt) => {
-          const set = programmedShots[pt - 1];
-          return (
-            <View key={pt} style={s.shotRow}>
-              <View style={[s.shotBadge, set && s.shotBadgeSet]}>
-                <Text style={[s.shotBadgeText, set && s.shotBadgeTextSet]}>{pt}</Text>
-              </View>
-              <Text style={[s.shotStatus, set && { color: COLORS.success }]}>{set ? t('configured') : t('notConfigured')}</Text>
-              <TouchableOpacity testID={`register-shot-${pt}`} style={s.shotActionBtn} onPress={() => registerShot(pt)}>
-                <Text style={s.shotActionText}>{t('registerPoint')}</Text>
-              </TouchableOpacity>
-              {set && (
-                <TouchableOpacity testID={`goto-shot-${pt}`} style={[s.shotActionBtn, s.shotGoBtn]} onPress={() => goToShot(pt)}>
-                  <Text style={[s.shotActionText, { color: COLORS.primary }]}>{t('goToPoint')}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </View>
-      <View style={s.shotBtnRow}>
-        <TouchableOpacity testID="test-launch" style={s.testLaunchBtn} onPress={sendLaunchCommand}>
-          <MaterialCommunityIcons name="rocket-launch-outline" size={16} color="#FFF" />
-          <Text style={s.testLaunchText}>{t('testLaunch')}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity testID="reset-shots" style={s.resetBtn} onPress={resetShots}>
-          <Text style={s.resetBtnText}>{t('resetPoints')}</Text>
-        </TouchableOpacity>
-      </View>
+    <View style={s.collapsibleContainer}>
+      <TouchableOpacity testID="toggle-shot-program" style={s.collapsibleHeader} onPress={() => setExpanded(!expanded)}>
+        <MaterialCommunityIcons name="target-variant" size={20} color={COLORS.primary} />
+        <Text style={s.collapsibleTitle}>{t('shotProgram')}</Text>
+        <Text style={s.collapsibleBadge}>{configCount}/4</Text>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={20} color={COLORS.textSecondary} />
+      </TouchableOpacity>
+
+      {expanded && (
+        <View style={s.collapsibleContent}>
+          <View style={s.shotsGrid}>
+            {[1, 2, 3, 4].map((pt) => {
+              const set = programmedShots[pt - 1];
+              return (
+                <View key={pt} style={s.shotRow}>
+                  <View style={[s.shotBadge, set && s.shotBadgeSet]}>
+                    <Text style={[s.shotBadgeText, set && s.shotBadgeTextSet]}>{pt}</Text>
+                  </View>
+                  <Text style={[s.shotStatus, set && { color: COLORS.success }]}>{set ? t('configured') : t('notConfigured')}</Text>
+                  <TouchableOpacity testID={`register-shot-${pt}`} style={s.shotActionBtn} onPress={() => registerShot(pt)}>
+                    <Text style={s.shotActionText}>{t('registerPoint')}</Text>
+                  </TouchableOpacity>
+                  {set && (
+                    <TouchableOpacity testID={`goto-shot-${pt}`} style={[s.shotActionBtn, s.shotGoBtn]} onPress={() => goToShot(pt)}>
+                      <Text style={[s.shotActionText, { color: COLORS.primary }]}>{t('goToPoint')}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+          <View style={s.shotBtnRow}>
+            <TouchableOpacity testID="test-launch" style={s.testLaunchBtn} onPress={sendLaunchCommand}>
+              <MaterialCommunityIcons name="rocket-launch-outline" size={16} color="#FFF" />
+              <Text style={s.testLaunchText}>{t('testLaunch')}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity testID="reset-shots" style={s.resetBtn} onPress={resetShots}>
+              <Text style={s.resetBtnText}>{t('resetPoints')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -175,9 +188,6 @@ export default function ControlsScreen() {
         <ValueStepper label={`${t('timeInterval')} (${t('seconds')})`} displayValue={`${timeInterval.toFixed(1)}s`} onDecrement={() => { const n = Math.round((timeInterval - 0.1) * 10) / 10; if (n >= 0.1) setTimeInterval(n); }} onIncrement={() => { const n = Math.round((timeInterval + 0.1) * 10) / 10; if (n <= 10) setTimeInterval(n); }} testIdPrefix="time" />
         <ValueStepper label={t('speed')} displayValue={`${speed}`} onDecrement={() => { if (speed > 0) setSpeed(speed - 1); }} onIncrement={() => { if (speed < 10) setSpeed(speed + 1); }} testIdPrefix="speed" />
 
-        {/* Pro: Shot Programming */}
-        {machineType === 'pro' && <ShotProgramming />}
-
         {/* Action Buttons */}
         <View style={s.actionsRow}>
           <TouchableOpacity testID="speed-btn" style={[s.actionBtnHalf, isMotorRunning ? s.actionBtnDanger : s.actionBtnOutline]} onPress={sendSpeedCommand}>
@@ -193,6 +203,9 @@ export default function ControlsScreen() {
           <Ionicons name={isTraining ? 'stop-circle' : 'play-circle'} size={24} color="#FFF" />
           <Text style={s.actionBtnTextLarge}>{isTraining ? 'STOP' : t('init')}</Text>
         </TouchableOpacity>
+
+        {/* Pro: Shot Programming - collapsible, below INIT */}
+        {machineType === 'pro' && <ShotProgramming />}
       </ScrollView>
     </SafeAreaView>
   );
@@ -245,7 +258,12 @@ const s = StyleSheet.create({
   stepBtn: { width: 46, height: 46, borderRadius: 10, backgroundColor: COLORS.surfaceElevated, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
   valueBox: { flex: 1, height: 46, borderRadius: 10, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
   valueText: { color: COLORS.textPrimary, fontSize: 24, fontWeight: '900', letterSpacing: -1, fontVariant: ['tabular-nums'] },
-  // Shot Programming
+  // Shot Programming - collapsible
+  collapsibleContainer: { marginTop: 12, backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
+  collapsibleHeader: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10 },
+  collapsibleTitle: { color: COLORS.textPrimary, fontSize: 14, fontWeight: '700', flex: 1 },
+  collapsibleBadge: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '700', backgroundColor: COLORS.surfaceElevated, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, overflow: 'hidden' },
+  collapsibleContent: { paddingHorizontal: 14, paddingBottom: 14 },
   shotsGrid: { gap: 6 },
   shotRow: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.surface, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, padding: 8 },
   shotBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.surfaceElevated, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
