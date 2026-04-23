@@ -10,6 +10,8 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.franciscoduran.squashmachinetrainer",
+      "buildNumber": "1",
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "Connect to squash training machine",
         "NSBluetoothPeripheralUsageDescription": "Connect to squash training machine"
@@ -55,6 +57,11 @@
       ],
       "react-native-ble-plx"
     ],
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    },
     "experiments": {
       "typedRoutes": true
     }

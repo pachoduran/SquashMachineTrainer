@@ -1,0 +1,31 @@
+{
+  "cli": {
+    "version": ">= 3.13.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_NO_CAPABILITY_SYNC": "1"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascApiKeyPath": "./AuthKey_56AQ8A85QK.p8",
+        "ascApiKeyId": "56AQ8A85QK",
+        "ascApiKeyIssuerId": "69a6de8b-b37b-47e3-e053-5b8c7c11a4d1"
+      }
+    }
+  }
+}
