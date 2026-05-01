@@ -42,10 +42,14 @@
         "react-native-ble-plx",
         {
           "isBackgroundEnabled": true,
-          "modes": ["peripheral", "central"],
+          "modes": [
+            "peripheral",
+            "central"
+          ],
           "bluetoothAlwaysPermission": "Connect to squash training machine"
         }
       ],
+      "./plugins/withAdiRegistration",
       [
         "expo-splash-screen",
         {
@@ -55,7 +59,8 @@
           "backgroundColor": "#000"
         }
       ],
-      "react-native-ble-plx"
+      "react-native-ble-plx",
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {
